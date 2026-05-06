@@ -5814,29 +5814,57 @@ def test_freshdesk():
 
 @app.route("/api/test-anthropic", methods=["POST"])
 def test_anthropic():
-    """Backward-compat wrapper — delegates to test_llm."""
-    return test_llm()
+    """Backward-compat endpoint — tests the legacy Anthropic key (anthropic_api_key).
+    Does NOT use the new llm_api_key setting; kept for clients that haven't migrated."""
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    key = data.get("api_key") or get_setting("anthropic_api_key", db=db)
+
+    if data.get("api_key"):
+        set_setting("anthropic_api_key", data["api_key"], db=db)
+
+    if not key:
+        return jsonify({"ok": False, "message": "Anthropic API key not set"})
+
+    try:
+        client = Anthropic(api_key=key)
+        client.messages.create(
+            model="claude-sonnet-4-5", max_tokens=10,
+            messages=[{"role": "user", "content": "Say OK"}],
+        )
+        return jsonify({"ok": True, "message": "Connected to Claude AI"})
+    except Exception as e:
+        return jsonify({"ok": False, "message": str(e)[:200]})
 
 
 @app.route("/api/test-llm", methods=["POST"])
 def test_llm():
-    """Test LLM provider connection. Reads config from DB or request body."""
+    """Test the active LLM provider connection using llm_provider + llm_api_key settings.
+    Does NOT fall back to the legacy anthropic_api_key — that is reserved for the old
+    direct Anthropic code path.  Returns a clear error when llm_api_key is not set."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    provider = data.get("provider") or get_setting("llm_provider", "anthropic", db=db)
-    api_key = data.get("api_key") or get_setting(
-        "llm_api_key", get_setting("anthropic_api_key", "", db=db), db=db
-    )
-    base_url = data.get("base_url") or get_setting("llm_base_url", "", db=db)
 
-    # Save the key if provided
+    provider = (data.get("provider") or get_setting("llm_provider", "anthropic", db=db) or "anthropic").strip()
+    # Use llm_api_key only — never the legacy anthropic_api_key fallback
+    api_key = (data.get("api_key") or get_setting("llm_api_key", "", db=db) or "").strip()
+    base_url = (data.get("base_url") or get_setting("llm_base_url", "", db=db) or "").strip()
+
+    # Persist if caller supplied a key
     if data.get("api_key"):
         set_setting("llm_api_key", data["api_key"], db=db)
+        # Keep anthropic_api_key in sync only when the caller is explicitly using Anthropic
         if provider == "anthropic":
             set_setting("anthropic_api_key", data["api_key"], db=db)
 
     if not api_key:
-        return jsonify({"ok": False, "message": "API key not set"})
+        return jsonify({
+            "ok": False,
+            "message": (
+                f"No API key configured for LLM provider '{provider}'. "
+                "Please set it in AI Provider settings (llm_api_key)."
+            ),
+        })
 
     if LLMGateway is not None:
         try:
@@ -5847,7 +5875,7 @@ def test_llm():
         except Exception as e:
             return jsonify({"ok": False, "message": str(e)[:200]})
     else:
-        # Fallback: direct Anthropic test
+        # LLMGateway not available — direct Anthropic fallback for legacy deploys
         try:
             client = Anthropic(api_key=api_key)
             client.messages.create(
@@ -5888,10 +5916,16 @@ def api_test_agent_model(agent_name):
     if not cfg:
         return jsonify({"ok": False, "message": f"No config found for {agent_name}"}), 404
     provider = cfg.get("provider", "anthropic")
-    api_key = get_setting("llm_api_key", get_setting("anthropic_api_key", "", db=db), db=db)
+    api_key = (get_setting("llm_api_key", "", db=db) or "").strip()
     base_url = get_setting("llm_base_url", "", db=db)
     if not api_key:
-        return jsonify({"ok": False, "message": "API key not configured"})
+        return jsonify({
+            "ok": False,
+            "message": (
+                f"No API key configured for LLM provider '{provider}'. "
+                "Please set it in AI Provider settings (llm_api_key)."
+            ),
+        })
     if LLMGateway is not None:
         try:
             gw = LLMGateway(provider_name=provider, api_key=api_key,

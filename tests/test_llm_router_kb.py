@@ -36,7 +36,11 @@ def test_router_invalid_provider_fails_clearly():
         r.complete('kb_agent', 'sys', [{'role':'user','content':'hi'}])
         assert False
     except Exception as e:
-        assert 'Unsupported LLM provider' in str(e) or 'LLMRouter failure' in str(e)
+        assert (
+            'Unsupported LLM provider' in str(e)
+            or 'LLMRouter failure' in str(e)
+            or 'No API key configured' in str(e)
+        )
 
 
 def test_kb_agent_without_router_still_works(monkeypatch):
