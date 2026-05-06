@@ -230,6 +230,7 @@ def init_db():
         "jira_ticket_key": "ALTER TABLE tickets ADD COLUMN jira_ticket_key TEXT DEFAULT ''",
         "jira_ticket_url": "ALTER TABLE tickets ADD COLUMN jira_ticket_url TEXT DEFAULT ''",
         "bso_status": "ALTER TABLE tickets ADD COLUMN bso_status TEXT DEFAULT ''",
+        "pm_decision_json": "ALTER TABLE tickets ADD COLUMN pm_decision_json TEXT DEFAULT '{}'",
     }
     for col, sql in ticket_migrations.items():
         if col not in ticket_cols:
