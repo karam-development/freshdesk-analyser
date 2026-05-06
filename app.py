@@ -38,7 +38,11 @@ app.secret_key = os.getenv("SECRET_KEY", "change-me-in-production-" + os.urandom
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "analyzer.db")
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR = os.getenv("DATA_DIR", _APP_DIR)
+os.makedirs(_DATA_DIR, exist_ok=True)
+
+DB_PATH = os.path.join(_DATA_DIR, "analyzer.db")
 
 # Global state for background job (protected by _job_lock for thread safety)
 _job_lock = threading.Lock()
@@ -379,7 +383,7 @@ def set_setting(key, value, db=None):
 
 # ── File Upload & Text Extraction ────────────────────────────────────────────
 
-UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kb_uploads")
+UPLOAD_FOLDER = os.path.join(_DATA_DIR, "kb_uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {"pdf", "docx", "xlsx", "xls", "csv", "txt", "md"}
 
@@ -675,7 +679,7 @@ def extract_and_download_screenshots(ticket_data, conversations, api_key, domain
     Downloads images to a local folder and returns a list of screenshot metadata dicts.
     Each dict: {"filename": str, "path": str, "source": str, "created_at": str, "content_type": str}
     """
-    screenshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots", str(ticket_id))
+    screenshots_dir = os.path.join(_DATA_DIR, "screenshots", str(ticket_id))
     os.makedirs(screenshots_dir, exist_ok=True)
 
     image_extensions = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff"}
@@ -5087,7 +5091,7 @@ def upload_screenshot(ticket_id):
     if ext not in allowed_ext:
         return jsonify({"success": False, "message": f"Invalid file type: {ext}"}), 400
 
-    screenshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots", str(ticket_id))
+    screenshots_dir = os.path.join(_DATA_DIR, "screenshots", str(ticket_id))
     os.makedirs(screenshots_dir, exist_ok=True)
 
     safe_name = secure_filename(file.filename) or f"uploaded_{int(time.time())}.png"
@@ -5133,7 +5137,7 @@ def upload_screenshot(ticket_id):
 @app.route("/screenshots/<int:ticket_id>/<path:filename>")
 def serve_screenshot(ticket_id, filename):
     """Serve a screenshot file for a ticket."""
-    screenshots_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "screenshots", str(ticket_id))
+    screenshots_dir = os.path.join(_DATA_DIR, "screenshots", str(ticket_id))
     safe_name = secure_filename(filename)
     file_path = os.path.join(screenshots_dir, safe_name)
     if os.path.exists(file_path):
@@ -5288,9 +5292,8 @@ def generate_doc(ticket_id):
         "screenshots": screenshots,
     }
 
-    app_dir = os.path.dirname(os.path.abspath(__file__))
-    input_path = os.path.join(app_dir, f"_tmp_ticket_{ticket_id}.json")
-    output_dir = os.path.join(app_dir, "generated_docs")
+    input_path = os.path.join(_DATA_DIR, f"_tmp_ticket_{ticket_id}.json")
+    output_dir = os.path.join(_DATA_DIR, "generated_docs")
     os.makedirs(output_dir, exist_ok=True)
 
     safe_subject = re.sub(r'[^\w\s-]', '', (ticket["subject"] or "ticket")[:40]).strip().replace(" ", "_")

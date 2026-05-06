@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: freshdesk-analyser
+    runtime: python
+    buildCommand: pip install -r requirements.txt && npm install
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2 --timeout 120
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATA_DIR
+        value: /data
+      - key: FLASK_DEBUG
+        value: "false"
