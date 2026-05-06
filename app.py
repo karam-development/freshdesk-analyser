@@ -19,6 +19,12 @@ from functools import wraps
 import requests
 from requests.auth import HTTPBasicAuth
 from anthropic import Anthropic
+try:
+    from ai.llm.gateway import LLMGateway
+    from ai.llm.registry import MODEL_REGISTRY
+except ImportError:
+    LLMGateway = None
+    MODEL_REGISTRY = {}
 import subprocess
 import tempfile
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, g, send_file
@@ -269,6 +275,32 @@ def init_db():
 
     db.commit()
 
+    # Create agent_model_config table (provider-agnostic per-agent LLM config)
+    try:
+        db.execute("""CREATE TABLE IF NOT EXISTS agent_model_config (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            agent_name TEXT UNIQUE NOT NULL,
+            provider TEXT NOT NULL DEFAULT 'anthropic',
+            model TEXT NOT NULL,
+            temperature REAL DEFAULT 0.0,
+            max_tokens INTEGER DEFAULT 2000,
+            enabled INTEGER DEFAULT 1,
+            fallback_provider TEXT DEFAULT '',
+            fallback_model TEXT DEFAULT '',
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )""")
+        db.commit()
+    except Exception:
+        pass
+
+    # Seed default agent model configs if table is empty
+    try:
+        count = db.execute("SELECT COUNT(*) FROM agent_model_config").fetchone()[0]
+        if count == 0:
+            seed_agent_model_configs(db)
+    except Exception:
+        pass
+
     # Initialize terminology glossary
     init_terminology(db)
     db.close()
@@ -379,6 +411,119 @@ def set_setting(key, value, db=None):
     db.commit()
     if close_after:
         db.close()
+
+
+# ── Agent Model Config ───────────────────────────────────────────────────────
+
+AGENT_CONFIG_NAMES = [
+    "kb_agent", "code_agent", "research_agent", "qa_agent", "learning_agent",
+    "main_analysis_agent", "draft_response_agent", "prd_agent",
+    "classification_agent", "summary_agent", "feasibility_agent",
+    "batch_agent", "reply_scanner_agent", "jira_agent",
+    "notification_agent", "reporting_agent",
+]
+
+_VALID_PROVIDERS = {"anthropic", "openai"}
+
+
+def get_llm_config(db):
+    """Return a dict with provider, api_key, model_fast, model_main, base_url from settings."""
+    provider = get_setting("llm_provider", "anthropic", db=db) or "anthropic"
+    api_key = get_setting("llm_api_key", "", db=db) or get_setting("anthropic_api_key", "", db=db)
+    base_url = get_setting("llm_base_url", "", db=db)
+    model_fast = get_setting("llm_fast_model", "", db=db)
+    model_main = get_setting("llm_main_model", "", db=db)
+    return {
+        "provider": provider,
+        "api_key": api_key,
+        "base_url": base_url,
+        "model_fast": model_fast,
+        "model_main": model_main,
+    }
+
+
+def seed_agent_model_configs(db):
+    """Insert default per-agent model configs if missing."""
+    defaults = [
+        ("kb_agent",            "anthropic", "claude-haiku-4-5-20251001", 0.0, 3000),
+        ("code_agent",          "anthropic", "claude-haiku-4-5-20251001", 0.0, 3000),
+        ("research_agent",      "anthropic", "claude-haiku-4-5-20251001", 0.0, 2000),
+        ("qa_agent",            "anthropic", "claude-haiku-4-5-20251001", 0.0, 1500),
+        ("learning_agent",      "anthropic", "claude-haiku-4-5-20251001", 0.0, 1500),
+        ("main_analysis_agent", "anthropic", "claude-sonnet-4-5",         0.0, 4000),
+        ("draft_response_agent","anthropic", "claude-sonnet-4-5",         0.0, 4000),
+        ("prd_agent",           "anthropic", "claude-sonnet-4-5",         0.0, 4000),
+        ("classification_agent","anthropic", "claude-haiku-4-5-20251001", 0.0, 1000),
+        ("summary_agent",       "anthropic", "claude-haiku-4-5-20251001", 0.0, 1000),
+        ("feasibility_agent",   "anthropic", "claude-haiku-4-5-20251001", 0.0, 1000),
+        ("batch_agent",         "anthropic", "claude-haiku-4-5-20251001", 0.0, 2000),
+        ("reply_scanner_agent", "anthropic", "claude-haiku-4-5-20251001", 0.0, 2000),
+        ("jira_agent",          "anthropic", "claude-haiku-4-5-20251001", 0.0, 1000),
+        ("notification_agent",  "anthropic", "claude-haiku-4-5-20251001", 0.0, 500),
+        ("reporting_agent",     "anthropic", "claude-sonnet-4-5",         0.0, 3000),
+    ]
+    now = datetime.now(timezone.utc).isoformat()
+    for name, provider, model, temp, max_tok in defaults:
+        try:
+            db.execute("""
+                INSERT OR IGNORE INTO agent_model_config
+                (agent_name, provider, model, temperature, max_tokens, enabled, updated_at)
+                VALUES (?, ?, ?, ?, ?, 1, ?)
+            """, (name, provider, model, temp, max_tok, now))
+        except Exception:
+            pass
+    db.commit()
+
+
+def list_agent_model_configs(db):
+    """Return all rows from agent_model_config as list of dicts."""
+    try:
+        rows = db.execute(
+            "SELECT * FROM agent_model_config ORDER BY agent_name"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_agent_model_config(db, agent_name):
+    """Return one agent config row as dict, or None."""
+    try:
+        row = db.execute(
+            "SELECT * FROM agent_model_config WHERE agent_name = ?", (agent_name,)
+        ).fetchone()
+        return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def update_agent_model_config(db, agent_name, payload):
+    """Validate and update an agent's model config. Raises ValueError on bad input."""
+    provider = payload.get("provider", "anthropic")
+    if provider not in _VALID_PROVIDERS:
+        raise ValueError(f"Unknown provider '{provider}'. Must be one of: {sorted(_VALID_PROVIDERS)}")
+    model = payload.get("model", "").strip()
+    if not model:
+        raise ValueError("model must not be empty")
+    temperature = float(payload.get("temperature", 0.0))
+    max_tokens = int(payload.get("max_tokens", 2000))
+    enabled = int(bool(payload.get("enabled", True)))
+    fallback_provider = payload.get("fallback_provider", "")
+    fallback_model = payload.get("fallback_model", "")
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute("""
+        INSERT INTO agent_model_config
+            (agent_name, provider, model, temperature, max_tokens, enabled,
+             fallback_provider, fallback_model, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(agent_name) DO UPDATE SET
+            provider=excluded.provider, model=excluded.model,
+            temperature=excluded.temperature, max_tokens=excluded.max_tokens,
+            enabled=excluded.enabled, fallback_provider=excluded.fallback_provider,
+            fallback_model=excluded.fallback_model, updated_at=excluded.updated_at
+    """, (agent_name, provider, model, temperature, max_tokens, enabled,
+          fallback_provider, fallback_model, now))
+    db.commit()
 
 
 # ── File Upload & Text Extraction ────────────────────────────────────────────
@@ -5385,6 +5530,24 @@ def settings():
             if val:  # Only update non-empty values
                 set_setting(field, val, db=db)
 
+        # LLM provider settings
+        llm_provider = request.form.get("llm_provider", "").strip()
+        if llm_provider:
+            set_setting("llm_provider", llm_provider, db=db)
+        llm_api_key = request.form.get("llm_api_key", "").strip()
+        if llm_api_key:
+            set_setting("llm_api_key", llm_api_key, db=db)
+            if llm_provider == "anthropic" or not llm_provider:
+                set_setting("anthropic_api_key", llm_api_key, db=db)
+        llm_base_url = request.form.get("llm_base_url", "").strip()
+        set_setting("llm_base_url", llm_base_url, db=db)
+        llm_fast_model = request.form.get("llm_fast_model", "").strip()
+        if llm_fast_model:
+            set_setting("llm_fast_model", llm_fast_model, db=db)
+        llm_main_model = request.form.get("llm_main_model", "").strip()
+        if llm_main_model:
+            set_setting("llm_main_model", llm_main_model, db=db)
+
         # Jira settings (allow saving empty to clear)
         for jf in ["jira_domain", "jira_email", "jira_api_token", "jira_project"]:
             val = request.form.get(jf, "").strip()
@@ -5416,7 +5579,9 @@ def settings():
     for key in ["freshdesk_api_key", "freshdesk_domain", "freshdesk_group_id",
                 "anthropic_api_key", "freshdesk_country", "freshdesk_country_custom",
                 "freshdesk_statuses", "writing_style", "template_code_path",
-                "jira_domain", "jira_email", "jira_api_token", "jira_project"]:
+                "jira_domain", "jira_email", "jira_api_token", "jira_project",
+                "llm_provider", "llm_api_key", "llm_base_url",
+                "llm_fast_model", "llm_main_model"]:
         current[key] = get_setting(key, db=db)
 
     # Set defaults
@@ -5649,28 +5814,93 @@ def test_freshdesk():
 
 @app.route("/api/test-anthropic", methods=["POST"])
 def test_anthropic():
-    """Test Anthropic connection. Accepts key from JSON body or reads from DB."""
+    """Backward-compat wrapper — delegates to test_llm."""
+    return test_llm()
+
+
+@app.route("/api/test-llm", methods=["POST"])
+def test_llm():
+    """Test LLM provider connection. Reads config from DB or request body."""
     db = get_db()
     data = request.get_json(silent=True) or {}
-    key = data.get("api_key") or get_setting("anthropic_api_key", db=db)
+    provider = data.get("provider") or get_setting("llm_provider", "anthropic", db=db)
+    api_key = data.get("api_key") or get_setting(
+        "llm_api_key", get_setting("anthropic_api_key", "", db=db), db=db
+    )
+    base_url = data.get("base_url") or get_setting("llm_base_url", "", db=db)
 
     # Save the key if provided
     if data.get("api_key"):
-        set_setting("anthropic_api_key", data["api_key"], db=db)
+        set_setting("llm_api_key", data["api_key"], db=db)
+        if provider == "anthropic":
+            set_setting("anthropic_api_key", data["api_key"], db=db)
 
-    if not key:
+    if not api_key:
         return jsonify({"ok": False, "message": "API key not set"})
 
+    if LLMGateway is not None:
+        try:
+            gw = LLMGateway(provider_name=provider, api_key=api_key,
+                            base_url=base_url or None)
+            ok, msg = gw.test_connection()
+            return jsonify({"ok": ok, "message": msg})
+        except Exception as e:
+            return jsonify({"ok": False, "message": str(e)[:200]})
+    else:
+        # Fallback: direct Anthropic test
+        try:
+            client = Anthropic(api_key=api_key)
+            client.messages.create(
+                model="claude-sonnet-4-5", max_tokens=10,
+                messages=[{"role": "user", "content": "Say OK"}],
+            )
+            return jsonify({"ok": True, "message": "Connected to Claude AI"})
+        except Exception as e:
+            return jsonify({"ok": False, "message": str(e)[:200]})
+
+
+@app.route("/api/agents/model-config", methods=["GET"])
+def api_agent_model_configs():
+    """List all agent model configs."""
+    db = get_db()
+    return jsonify({"ok": True, "configs": list_agent_model_configs(db)})
+
+
+@app.route("/api/agents/model-config/<agent_name>", methods=["POST"])
+def api_update_agent_model_config(agent_name):
+    """Update a single agent's model config."""
+    db = get_db()
+    payload = request.get_json(silent=True) or {}
     try:
-        client = Anthropic(api_key=key)
-        resp = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=10,
-            messages=[{"role": "user", "content": "Say OK"}],
-        )
-        return jsonify({"ok": True, "message": "Connected to Claude AI"})
+        update_agent_model_config(db, agent_name, payload)
+        return jsonify({"ok": True, "message": f"Config for {agent_name} updated"})
+    except ValueError as e:
+        return jsonify({"ok": False, "message": str(e)}), 400
     except Exception as e:
-        return jsonify({"ok": False, "message": str(e)[:200]})
+        return jsonify({"ok": False, "message": str(e)[:200]}), 500
+
+
+@app.route("/api/agents/test-model/<agent_name>", methods=["POST"])
+def api_test_agent_model(agent_name):
+    """Test the configured model for a specific agent."""
+    db = get_db()
+    cfg = get_agent_model_config(db, agent_name)
+    if not cfg:
+        return jsonify({"ok": False, "message": f"No config found for {agent_name}"}), 404
+    provider = cfg.get("provider", "anthropic")
+    api_key = get_setting("llm_api_key", get_setting("anthropic_api_key", "", db=db), db=db)
+    base_url = get_setting("llm_base_url", "", db=db)
+    if not api_key:
+        return jsonify({"ok": False, "message": "API key not configured"})
+    if LLMGateway is not None:
+        try:
+            gw = LLMGateway(provider_name=provider, api_key=api_key,
+                            base_url=base_url or None)
+            ok, msg = gw.test_connection()
+            return jsonify({"ok": ok, "message": msg, "model": cfg.get("model")})
+        except Exception as e:
+            return jsonify({"ok": False, "message": str(e)[:200]})
+    return jsonify({"ok": False, "message": "LLMGateway not available"})
 
 
 @app.route("/api/test-jira", methods=["POST"])
@@ -6793,6 +7023,8 @@ def agent_dashboard():
     total_successes = sum(r.get("successes", 0) or 0 for r in cost_summary)
     success_rate = (total_successes / total_calls * 100) if total_calls > 0 else 100.0
 
+    model_configs = list_agent_model_configs(db)
+
     return render_template("agents.html",
         cost_summary=cost_summary,
         lessons=lessons,
@@ -6802,6 +7034,7 @@ def agent_dashboard():
         total_calls=total_calls,
         total_tokens=total_tokens,
         success_rate=success_rate,
+        model_configs=model_configs,
     )
 
 

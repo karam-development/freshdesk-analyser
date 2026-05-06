@@ -33,6 +33,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
 from anthropic import Anthropic
 
+try:
+    from ai.llm.router import LLMRouter
+except ImportError:
+    LLMRouter = None
+
 logger = logging.getLogger("agents")
 
 # ─── Agent Models ────────────────────────────────────────────────────────────
@@ -81,6 +86,19 @@ def _estimate_cost(usage):
     return round(input_cost + output_cost, 6)
 
 
+def _usage_from_llm_response(resp):
+    """Normalise a routed LLMResponse usage to the legacy dict format."""
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return {}
+    return {
+        "input_tokens": getattr(u, "input_tokens", 0),
+        "output_tokens": getattr(u, "output_tokens", 0),
+        "model": getattr(resp, "model", "unknown"),
+        "provider": getattr(resp, "provider", "unknown"),
+    }
+
+
 def _cache_key(content):
     """Generate a hash key for caching agent results.
     Uses the full content for hashing (not truncated) to avoid collisions."""
@@ -92,7 +110,7 @@ def _cache_key(content):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def kb_agent(client, ticket_subject, ticket_summary, full_kb_context, terminology_context="",
-             code_context_summary="", max_output_tokens=3000):
+             code_context_summary="", max_output_tokens=3000, llm_router=None):
     """
     KB Agent: Reads the FULL knowledge base and returns ONLY the relevant information
     for this specific ticket. Also performs feasibility and accounting validation.
@@ -166,18 +184,28 @@ FULL KNOWLEDGE BASE — READ ALL OF THIS:
 Extract everything relevant to this ticket. Be thorough — the main agent only sees what you provide."""
 
     try:
-        result, usage = _call_with_retry(
-            client,
-            model=AGENT_MODEL_FAST,
-            max_tokens=max_output_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="kb_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=max_output_tokens,
+            )
+            result = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            result, usage = _call_with_retry(
+                client,
+                model=AGENT_MODEL_FAST,
+                max_tokens=max_output_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
         logger.info(f"KB Agent returned {len(result)} chars for: {ticket_subject[:60]}")
         return result, usage
     except Exception as e:
         logger.error(f"KB Agent failed: {e}")
-        return (full_kb_context[:5000] if full_kb_context else ""), {}
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -185,7 +213,7 @@ Extract everything relevant to this ticket. Be thorough — the main agent only 
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def code_agent(client, ticket_subject, ticket_summary, full_code_context,
-               kb_brief="", max_output_tokens=3000):
+               kb_brief="", max_output_tokens=3000, llm_router=None):
     """
     Code Agent: Reads the FULL template code (no truncation) and returns a targeted
     functional analysis for this specific ticket.
@@ -284,13 +312,23 @@ Analyze this code in relation to the ticket. Find reference patterns in other se
 Output in plain language only — no code, no variable names, no file paths."""
 
     try:
-        result, usage = _call_with_retry(
-            client,
-            model=AGENT_MODEL_FAST,
-            max_tokens=max_output_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="code_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=max_output_tokens,
+            )
+            result = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            result, usage = _call_with_retry(
+                client,
+                model=AGENT_MODEL_FAST,
+                max_tokens=max_output_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
         logger.info(f"Code Agent returned {len(result)} chars for: {ticket_subject[:60]}")
         return result, usage
     except Exception as e:
@@ -307,7 +345,7 @@ Output in plain language only — no code, no variable names, no file paths."""
 
 def research_agent(client, db, ticket_id, ticket_subject, ticket_summary, template_name="",
                    workflow_name="", jira_context="", max_output_tokens=2000,
-                   _prefetched_tickets=None, _prefetched_lessons=None):
+                   _prefetched_tickets=None, _prefetched_lessons=None, llm_router=None):
     """
     Research Agent: Searches past tickets for similar issues and extracts patterns
     from how the PO handled them. Builds historical context.
@@ -409,13 +447,23 @@ LESSONS LEARNED:
 Synthesize what's relevant for the current ticket."""
 
     try:
-        result, usage = _call_with_retry(
-            client,
-            model=AGENT_MODEL_FAST,
-            max_tokens=max_output_tokens,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="research_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=max_output_tokens,
+            )
+            result = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            result, usage = _call_with_retry(
+                client,
+                model=AGENT_MODEL_FAST,
+                max_tokens=max_output_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
         logger.info(f"Research Agent returned {len(result)} chars for: {ticket_subject[:60]}")
         return result, usage
     except Exception as e:
@@ -585,7 +633,7 @@ def _find_relevant_lessons(db, subject, template_name="", limit=40):
 #  3. QA AGENT — Quality Assurance / Rule Police
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def qa_agent(client, agent_output, output_type, ticket_subject, kb_brief, rules_context=""):
+def qa_agent(client, agent_output, output_type, ticket_subject, kb_brief, rules_context="", llm_router=None):
     """
     QA Agent: Reviews the output of the main analysis agent and checks for:
     - Rule violations (code references, mixed languages, markdown, etc.)
@@ -693,13 +741,23 @@ AGENT OUTPUT TO REVIEW:
 Review this output against all rules. Be thorough."""
 
     try:
-        text, usage = _call_with_retry(
-            client,
-            model=AGENT_MODEL_FAST,
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="qa_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=1500,
+            )
+            text = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client,
+                model=AGENT_MODEL_FAST,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -801,7 +859,7 @@ def _upsert_lesson(db, row):
 
 def learning_agent(client, db, ticket_id, ticket_subject, template_name, workflow_name,
                    original_ai_output, final_po_output, output_type="draft_response",
-                   source="po_edit"):
+                   source="po_edit", llm_router=None, include_usage=False):
     """
     Learning Agent: Compares the AI's original output with the PO's final edited version.
     Extracts lessons about what the PO changed and WHY, then stores them for future reference.
@@ -815,12 +873,12 @@ def learning_agent(client, db, ticket_id, ticket_subject, template_name, workflo
     to provide historical context to future analysis.
     """
     if not original_ai_output or not final_po_output:
-        return []
+        return ([], {}) if include_usage else []
 
     # Skip if outputs are identical (PO didn't change anything)
     if original_ai_output.strip() == final_po_output.strip():
         logger.info(f"Learning Agent: No changes detected for ticket {ticket_id}, skipping.")
-        return []
+        return ([], {}) if include_usage else []
 
     system = """You are the Learning Specialist agent for Silverfin's Luxembourg templates team.
 
@@ -873,13 +931,23 @@ PO'S FINAL EDITED VERSION:
 Extract lessons from what the PO changed. Focus on patterns, not one-off fixes."""
 
     try:
-        text, usage = _call_with_retry(
-            client,
-            model=AGENT_MODEL_FAST,
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}],
-        )
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="learning_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=1500,
+            )
+            text = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client,
+                model=AGENT_MODEL_FAST,
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+            )
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
@@ -926,11 +994,11 @@ Extract lessons from what the PO changed. Focus on patterns, not one-off fixes."
                 f"{stored_count} new, {reinforced_count} reinforced"
             )
 
-        return lessons
+        return (lessons, usage) if include_usage else lessons
 
     except Exception as e:
         logger.error(f"Learning Agent failed: {e}")
-        return []
+        return ([], {}) if include_usage else []
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -973,6 +1041,14 @@ class AgentOrchestrator:
         self._db_lock = threading.Lock()  # Serialize DB access across worker threads
         self._agent_log = collections.deque(maxlen=500)  # Bounded in-memory log
         self._batch_kb_cache = {}  # In-memory cache for batch KB optimization
+        # Provider-agnostic LLM router (reads per-agent config from DB)
+        if LLMRouter is not None:
+            try:
+                self.llm_router = LLMRouter(db=db)
+            except Exception:
+                self.llm_router = None
+        else:
+            self.llm_router = None
 
     # ── Logging with cost tracking ────────────────────────────────────────────
 
@@ -990,20 +1066,34 @@ class AgentOrchestrator:
             "duration_ms": duration_ms, "success": success,
             "error": str(error)[:200] if error else None,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "provider": u.get("provider", ""),
+            "model": u.get("model", ""),
         }
         self._agent_log.append(entry)
 
         if self.db:
             try:
                 with self._db_lock:
-                    self.db.execute("""
-                        INSERT INTO agent_logs (agent_name, ticket_id, input_chars, output_chars,
-                            input_tokens, output_tokens, estimated_cost,
-                            duration_ms, success, error, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (agent_name, ticket_id, input_size, output_size,
-                          u.get("input_tokens", 0), u.get("output_tokens", 0), cost,
-                          duration_ms, 1 if success else 0, entry["error"], entry["timestamp"]))
+                    try:
+                        self.db.execute("""
+                            INSERT INTO agent_logs (agent_name, ticket_id, input_chars, output_chars,
+                                input_tokens, output_tokens, estimated_cost,
+                                duration_ms, success, error, provider, model, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (agent_name, ticket_id, input_size, output_size,
+                              u.get("input_tokens", 0), u.get("output_tokens", 0), cost,
+                              duration_ms, 1 if success else 0, entry["error"],
+                              entry["provider"], entry["model"], entry["timestamp"]))
+                    except Exception:
+                        # Fallback to old schema without provider/model columns
+                        self.db.execute("""
+                            INSERT INTO agent_logs (agent_name, ticket_id, input_chars, output_chars,
+                                input_tokens, output_tokens, estimated_cost,
+                                duration_ms, success, error, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (agent_name, ticket_id, input_size, output_size,
+                              u.get("input_tokens", 0), u.get("output_tokens", 0), cost,
+                              duration_ms, 1 if success else 0, entry["error"], entry["timestamp"]))
                     self.db.commit()
             except Exception as e:
                 logger.warning(f"Failed to log agent execution to DB: {e}")
@@ -1077,7 +1167,8 @@ class AgentOrchestrator:
         try:
             result, usage = kb_agent(
                 self.client, ticket_subject, ticket_summary,
-                full_kb_context, terminology_context, code_context_summary
+                full_kb_context, terminology_context, code_context_summary,
+                llm_router=self.llm_router,
             )
             duration = int((time.time() - start) * 1000)
             self._log_agent("kb_agent", ticket_id, len(full_kb_context), len(result), duration, usage=usage)
@@ -1087,7 +1178,7 @@ class AgentOrchestrator:
             duration = int((time.time() - start) * 1000)
             self._log_agent("kb_agent", ticket_id, len(full_kb_context), 0, duration, False, e)
             logger.error(f"KB Agent failed for ticket {ticket_id}: {e}")
-            return full_kb_context[:5000]
+            return f"KB Agent failed: {str(e)[:200]}"
 
     def get_code_brief(self, ticket_id, ticket_subject, ticket_summary,
                        full_code_context, kb_brief=""):
@@ -1104,7 +1195,8 @@ class AgentOrchestrator:
         try:
             result, usage = code_agent(
                 self.client, ticket_subject, ticket_summary,
-                full_code_context, kb_brief
+                full_code_context, kb_brief,
+                llm_router=self.llm_router,
             )
             duration = int((time.time() - start) * 1000)
             self._log_agent("code_agent", ticket_id, len(full_code_context), len(result), duration, usage=usage)
@@ -1115,7 +1207,7 @@ class AgentOrchestrator:
             self._log_agent("code_agent", ticket_id, len(full_code_context), 0, duration, False, e)
             logger.error(f"Code Agent failed for ticket {ticket_id}: {e}")
             # NEVER return raw code as fallback — it leaks into AI output
-            return "[Code Agent unavailable — no template analysis available.]"
+            return "Code Agent unavailable — no template analysis available."
 
     def get_research_brief(self, ticket_id, ticket_subject, ticket_summary,
                            template_name="", workflow_name="", jira_context=""):
@@ -1139,7 +1231,8 @@ class AgentOrchestrator:
             result, usage = research_agent(
                 self.client, self.db, ticket_id, ticket_subject, ticket_summary,
                 template_name, workflow_name, jira_context=jira_context,
-                _prefetched_tickets=similar_tickets, _prefetched_lessons=lessons
+                _prefetched_tickets=similar_tickets, _prefetched_lessons=lessons,
+                llm_router=self.llm_router,
             )
             duration = int((time.time() - start) * 1000)
             self._log_agent("research_agent", ticket_id, 0, len(result), duration, usage=usage)
@@ -1148,14 +1241,15 @@ class AgentOrchestrator:
             duration = int((time.time() - start) * 1000)
             self._log_agent("research_agent", ticket_id, 0, 0, duration, False, e)
             logger.error(f"Research Agent failed for ticket {ticket_id}: {e}")
-            return ""
+            return "Research agent unavailable — proceeding without historical context."
 
     def run_qa(self, ticket_id, agent_output, output_type, ticket_subject, kb_brief):
         """Run QA Agent."""
         start = time.time()
         try:
             result = qa_agent(
-                self.client, agent_output, output_type, ticket_subject, kb_brief
+                self.client, agent_output, output_type, ticket_subject, kb_brief,
+                llm_router=self.llm_router,
             )
             usage = result.pop("_usage", {})
             duration = int((time.time() - start) * 1000)
@@ -1164,8 +1258,10 @@ class AgentOrchestrator:
         except Exception as e:
             duration = int((time.time() - start) * 1000)
             self._log_agent("qa_agent", ticket_id, len(agent_output), 0, duration, False, e)
-            return {"passed": True, "score": 0, "critical_issues": [], "warnings": [],
-                    "summary": "QA skipped due to error"}
+            return {"passed": False, "score": 0,
+                    "critical_issues": ["QA execution failed; manual review required"],
+                    "warnings": [str(e)[:200]], "suggestions": [],
+                    "summary": "QA check failed — manual review required"}
 
     # ── Parallel execution ────────────────────────────────────────────────────
 
@@ -1292,14 +1388,16 @@ class AgentOrchestrator:
 
         start = time.time()
         try:
-            result = learning_agent(
+            result, usage = learning_agent(
                 self.client, self.db, ticket_id, ticket_subject,
                 template_name, workflow_name,
                 original_output, final_output, output_type,
                 source=source,
+                llm_router=self.llm_router,
+                include_usage=True,
             )
             duration = int((time.time() - start) * 1000)
-            self._log_agent("learning_agent", ticket_id, 0, len(str(result)), duration)
+            self._log_agent("learning_agent", ticket_id, 0, len(str(result)), duration, usage=usage)
             return result
         except Exception as e:
             duration = int((time.time() - start) * 1000)
@@ -1424,6 +1522,9 @@ CREATE TABLE IF NOT EXISTS agent_logs (
     duration_ms INTEGER DEFAULT 0,
     success INTEGER DEFAULT 1,
     error TEXT,
+    provider TEXT DEFAULT '',
+    model TEXT DEFAULT '',
+    error_message TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -1464,6 +1565,9 @@ def init_agent_tables(db):
             ("agent_lessons", "source", "ALTER TABLE agent_lessons ADD COLUMN source TEXT DEFAULT 'po_edit'"),
             ("agent_lessons", "pinned", "ALTER TABLE agent_lessons ADD COLUMN pinned INTEGER DEFAULT 0"),
             ("tickets", "last_learned_conv_id", "ALTER TABLE tickets ADD COLUMN last_learned_conv_id INTEGER DEFAULT 0"),
+            ("agent_logs", "provider", "ALTER TABLE agent_logs ADD COLUMN provider TEXT DEFAULT ''"),
+            ("agent_logs", "model", "ALTER TABLE agent_logs ADD COLUMN model TEXT DEFAULT ''"),
+            ("agent_logs", "error_message", "ALTER TABLE agent_logs ADD COLUMN error_message TEXT DEFAULT ''"),
         ]
         for table, col, sql in _migrations:
             try:
