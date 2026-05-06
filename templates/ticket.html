@@ -1,0 +1,2887 @@
+{% extends "base.html" %}
+{% block title %}Ticket #{{ ticket.ticket_id }} - Freshdesk AI Analyzer{% endblock %}
+
+{% block content %}
+<div class="ticket-container">
+    <!-- ═══════════════════════════════════════════════════════════════════
+         HEADER: Ticket Title + Action Buttons
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div class="ticket-header">
+        <div class="ticket-header-left">
+            <a href="{{ url_for('dashboard') }}" class="breadcrumb-link">&larr; Back to Dashboard</a>
+            <h1 class="ticket-title">Ticket #{{ ticket.ticket_id }}: {{ ticket.subject }}</h1>
+        </div>
+        <div class="ticket-header-actions">
+            <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary">
+                <span>Open in Freshdesk</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+
+            <!-- Jira Integration -->
+            {% if ticket.jira_ticket_key %}
+            <a href="{{ ticket.jira_ticket_url }}" target="_blank" class="btn btn-secondary" style="background:#0052CC;color:white;border-color:#0052CC;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                <span>{{ ticket.jira_ticket_key }}</span>
+            </a>
+            {% else %}
+            <!-- Hidden marker for the Jira modal to detect ticket page context -->
+            <span data-jira-create-url="{{ url_for('create_jira_ticket', ticket_id=ticket.ticket_id) }}" style="display:none;"></span>
+
+            <div class="dropdown-wrapper" id="jira-dropdown-wrapper" style="position:relative;">
+                <button type="button" class="btn btn-primary" onclick="toggleJiraDropdown()" style="display:flex;align-items:center;gap:6px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                    <span>Ship to Jira</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div id="jira-dropdown" class="dropdown-menu" style="display:none;min-width:280px;right:0;left:auto;">
+                    <div class="dropdown-item" style="padding:10px 14px;">
+                        <button type="button" class="jira-open-btn"
+                                data-ticket-id="{{ ticket.ticket_id }}"
+                                data-subject="{{ ticket.subject|e }}"
+                                data-classification="{{ ticket.classification or '' }}"
+                                data-risk-level="{{ ticket.risk_level or '' }}"
+                                style="background:none;border:none;cursor:pointer;display:flex;align-items:center;gap:10px;width:100%;color:inherit;font:inherit;padding:0;">
+                            <span style="font-size:1.1em;">+</span>
+                            <span>Create new Jira ticket<br><small style="color:var(--text-muted);">Choose type, epic, priority & more</small></span>
+                        </button>
+                    </div>
+                    <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
+                    <form method="POST" action="{{ url_for('link_jira_ticket', ticket_id=ticket.ticket_id) }}" style="padding:10px 14px;">
+                        <label style="font-size:0.8em;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">Link existing Jira ticket</label>
+                        <div style="display:flex;gap:6px;">
+                            <input type="text" name="jira_key" placeholder="LUX-123" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:0.9em;background:var(--card);color:var(--text);" required>
+                            <button type="submit" class="btn btn-sm btn-primary" style="padding:6px 12px;">Link</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if ticket.analysis %}
+            <div class="dropdown-wrapper" id="export-dropdown-wrapper" style="position:relative;">
+                <button type="button" class="btn btn-secondary" onclick="toggleExportDropdown()" style="display:flex;align-items:center;gap:6px;background:#5046e5;color:white;border-color:#5046e5;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span>Export</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div id="export-dropdown" class="dropdown-menu" style="display:none;min-width:220px;">
+                    <a href="{{ url_for('notion_export_analysis', ticket_id=ticket.ticket_id) }}" target="_blank" class="dropdown-item" style="display:flex;align-items:center;gap:10px;padding:10px 14px;">
+                        <span style="font-size:1.1em;">📝</span>
+                        <span>Export to Notion</span>
+                    </a>
+                    <a href="{{ url_for('google_export_analysis_doc', ticket_id=ticket.ticket_id) }}" target="_blank" class="dropdown-item" style="display:flex;align-items:center;gap:10px;padding:10px 14px;">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4285f4" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        <span>Export to Google Docs</span>
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Prepare Analysis Dropdown -->
+            <div class="dropdown-wrapper" id="prepare-dropdown-wrapper">
+                <button type="button" class="btn btn-primary-action" onclick="togglePrepareDropdown()" style="display:flex;align-items:center;gap:6px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    {% if ticket.prd_content %}Refresh Analysis{% else %}Prepare Deep Analysis{% endif %}
+                </button>
+                <div id="prepare-dropdown" class="dropdown-menu">
+                    <form method="POST" action="{{ url_for('prepare_analysis', ticket_id=ticket.ticket_id) }}" id="prepare-form-fr">
+                        <input type="hidden" name="lang" value="fr">
+                        <button type="submit" class="dropdown-item" onclick="return showPrepareLoading(this, event)">
+                            <span class="flag">&#127467;&#127479;</span>
+                            <span>Prepare Analysis (French)</span>
+                        </button>
+                    </form>
+                    <form method="POST" action="{{ url_for('prepare_analysis', ticket_id=ticket.ticket_id) }}" id="prepare-form-en">
+                        <input type="hidden" name="lang" value="en">
+                        <button type="submit" class="dropdown-item" onclick="return showPrepareLoading(this, event)">
+                            <span class="flag">&#127468;&#127463;</span>
+                            <span>Prepare Analysis (English)</span>
+                        </button>
+                    </form>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-note">Uses AI to generate a deep functional analysis. Takes ~10 seconds. You only need to do this once per ticket.</div>
+                </div>
+            </div>
+
+            <!-- Download Document Dropdown -->
+            <div class="dropdown-wrapper" id="doc-dropdown-wrapper">
+                <button type="button" class="btn btn-success" onclick="toggleDocDropdown()" style="display:flex;align-items:center;gap:6px;"
+                    {% if not ticket.prd_content %}title="Run 'Prepare Deep Analysis' first for best results"{% endif %}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    Download Doc
+                </button>
+                <div id="doc-dropdown" class="dropdown-menu">
+                    {% if not ticket.prd_content %}
+                    <div class="dropdown-warning">No deep analysis prepared yet. Click "Prepare Deep Analysis" first for a proper document.</div>
+                    <div class="dropdown-divider"></div>
+                    {% endif %}
+                    <a href="#" onclick="downloadDocWithScreenshots('fr'); return false;" class="dropdown-item">
+                        <span class="flag">&#127467;&#127479;</span>
+                        <span>Download Word (French)</span>
+                    </a>
+                    <a href="#" onclick="downloadDocWithScreenshots('en'); return false;" class="dropdown-item">
+                        <span class="flag">&#127468;&#127463;</span>
+                        <span>Download Word (English)</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════
+         AI PROGRESS OVERLAY
+         ═══════════════════════════════════════════════════════════════════ -->
+    <div id="ai-progress-overlay" class="ai-progress-overlay">
+        <div class="ai-progress-modal">
+            <div class="ai-progress-header">
+                <div id="ai-pulse" class="ai-pulse"></div>
+                <div>
+                    <div id="ai-title" class="ai-progress-title"></div>
+                    <div id="ai-subtitle" class="ai-progress-subtitle"></div>
+                </div>
+            </div>
+
+            <div class="ai-progress-bar">
+                <div id="ai-bar" class="ai-progress-bar-fill"></div>
+            </div>
+
+            <div id="ai-steps" class="ai-steps-list"></div>
+
+            <div class="ai-progress-time">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <span id="ai-time-text"></span>
+            </div>
+        </div>
+    </div>
+
+    <style>
+    @keyframes ai-pulse-glow {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(99,102,241,0.4); }
+        50% { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+    }
+    .ai-step { display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;font-size:0.88em;transition:all 0.3s; }
+    .ai-step .step-icon { width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.7em;flex-shrink:0;transition:all 0.3s; }
+    .ai-step.waiting .step-icon { background:#f1f5f9;color:#94a3b8; }
+    .ai-step.waiting .step-label { color:#94a3b8; }
+    .ai-step.active { background:#f0f4ff; }
+    .ai-step.active .step-icon { background:#6366f1;color:white;animation:ai-pulse-glow 1.5s ease-in-out infinite; }
+    .ai-step.active .step-label { color:#312e81;font-weight:600; }
+    .ai-step.done .step-icon { background:#dcfce7;color:#166534; }
+    .ai-step.done .step-label { color:#374151; }
+    </style>
+
+    <script>
+    function toggleDocDropdown() {
+        const dd = document.getElementById('doc-dropdown');
+        dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        document.getElementById('prepare-dropdown').style.display = 'none';
+    }
+    function togglePrepareDropdown() {
+        const dd = document.getElementById('prepare-dropdown');
+        dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        document.getElementById('doc-dropdown').style.display = 'none';
+        const ed = document.getElementById('export-dropdown');
+        if (ed) ed.style.display = 'none';
+    }
+    function downloadDocWithScreenshots(lang) {
+        var baseUrl = "{{ url_for('generate_doc', ticket_id=ticket.ticket_id) }}";
+        var url = baseUrl + '?lang=' + lang;
+        // Append selected screenshots if any are checked
+        if (typeof getSelectedScreenshots === 'function') {
+            var selected = getSelectedScreenshots();
+            if (selected.length > 0) {
+                url += '&screenshots=' + encodeURIComponent(selected.join(','));
+            }
+        }
+        window.location.href = url;
+    }
+    function toggleExportDropdown() {
+        const dd = document.getElementById('export-dropdown');
+        if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        document.getElementById('doc-dropdown').style.display = 'none';
+        document.getElementById('prepare-dropdown').style.display = 'none';
+        var jd = document.getElementById('jira-dropdown'); if (jd) jd.style.display = 'none';
+    }
+    function toggleJiraDropdown() {
+        var dd = document.getElementById('jira-dropdown');
+        if (dd) dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        document.getElementById('doc-dropdown').style.display = 'none';
+        document.getElementById('prepare-dropdown').style.display = 'none';
+        var ed = document.getElementById('export-dropdown'); if (ed) ed.style.display = 'none';
+    }
+    document.addEventListener('click', function(e) {
+        if (!document.getElementById('doc-dropdown-wrapper').contains(e.target)) {
+            document.getElementById('doc-dropdown').style.display = 'none';
+        }
+        if (!document.getElementById('prepare-dropdown-wrapper').contains(e.target)) {
+            document.getElementById('prepare-dropdown').style.display = 'none';
+        }
+        var ew = document.getElementById('export-dropdown-wrapper');
+        if (ew && !ew.contains(e.target)) {
+            document.getElementById('export-dropdown').style.display = 'none';
+        }
+        var jw = document.getElementById('jira-dropdown-wrapper');
+        if (jw && !jw.contains(e.target)) {
+            var jd = document.getElementById('jira-dropdown'); if (jd) jd.style.display = 'none';
+        }
+    });
+
+    const AI_CONFIGS = {
+        deepAnalysis: {
+            title: 'Preparing Deep Analysis',
+            subtitle: 'AI is performing a thorough functional review',
+            color: '#7c3aed',
+            icon: '🔬',
+            time: 'Usually takes 10–20 seconds',
+            steps: [
+                'Reading ticket content and attachments',
+                'Identifying issue type and affected templates',
+                'Checking against Luxembourg regulations',
+                'Analyzing root cause and impact',
+                'Building functional analysis document',
+                'Finalizing recommendations',
+            ]
+        },
+        generateDrafts: {
+            title: 'Generating Draft Responses',
+            subtitle: 'Creating client response, internal note & backlog ticket',
+            color: '#059669',
+            icon: '✍️',
+            time: 'Usually takes 15–25 seconds',
+            steps: [
+                'Reviewing analysis and PO decision',
+                'Drafting client response (FR)',
+                'Translating client response (EN)',
+                'Writing internal note for BSO LUX',
+                'Composing backlog ticket description',
+                'Formatting and quality check',
+            ]
+        },
+        declineDrafts: {
+            title: 'Generating Decline Response',
+            subtitle: 'Preparing a professional explanation for the client',
+            color: '#dc2626',
+            icon: '📋',
+            time: 'Usually takes 10–15 seconds',
+            steps: [
+                'Reviewing ticket content and decline reason',
+                'Identifying decline category',
+                'Drafting client explanation (FR)',
+                'Translating client explanation (EN)',
+                'Writing internal note for BSO LUX',
+                'Final review',
+            ]
+        }
+    };
+
+    let aiServerDone = false;
+    let aiCurrentStep = -1;
+    let aiStepTimers = [];
+
+    function markStepDone(i) {
+        const el = document.getElementById('ai-step-' + i);
+        if (!el) return;
+        el.className = 'ai-step done';
+        el.querySelector('.step-icon').innerHTML = '✓';
+    }
+    function markStepActive(i) {
+        const el = document.getElementById('ai-step-' + i);
+        if (!el) return;
+        el.className = 'ai-step active';
+        el.querySelector('.step-icon').innerHTML = '<div style="width:10px;height:10px;border:2px solid white;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></div>';
+    }
+
+    function advanceStep(totalSteps) {
+        const bar = document.getElementById('ai-bar');
+        const nextStep = aiCurrentStep + 1;
+
+        if (aiServerDone) return;
+
+        if (nextStep >= totalSteps - 1 && !aiServerDone) {
+            bar.style.width = '85%';
+            document.getElementById('ai-subtitle').textContent = 'AI is still working — this is the real processing...';
+            return;
+        }
+
+        if (aiCurrentStep >= 0) markStepDone(aiCurrentStep);
+        aiCurrentStep = nextStep;
+        markStepActive(aiCurrentStep);
+
+        const progress = Math.round(((aiCurrentStep + 1) / totalSteps) * 85);
+        bar.style.width = progress + '%';
+    }
+
+    function showAIProgress(configKey, formEl) {
+        const cfg = AI_CONFIGS[configKey];
+        const overlay = document.getElementById('ai-progress-overlay');
+        const bar = document.getElementById('ai-bar');
+        const stepsEl = document.getElementById('ai-steps');
+
+        aiServerDone = false;
+        aiCurrentStep = -1;
+        aiStepTimers.forEach(t => clearTimeout(t));
+        aiStepTimers = [];
+
+        document.getElementById('ai-title').textContent = cfg.title;
+        document.getElementById('ai-subtitle').textContent = cfg.subtitle;
+        document.getElementById('ai-time-text').textContent = cfg.time;
+        const pulse = document.getElementById('ai-pulse');
+        pulse.innerHTML = cfg.icon;
+        pulse.style.background = cfg.color + '18';
+        bar.style.background = `linear-gradient(90deg, ${cfg.color}, ${cfg.color}cc)`;
+        bar.style.width = '0%';
+        bar.style.transition = 'width 0.6s ease';
+
+        stepsEl.innerHTML = '';
+        cfg.steps.forEach((label, i) => {
+            const div = document.createElement('div');
+            div.className = 'ai-step waiting';
+            div.id = 'ai-step-' + i;
+            div.innerHTML = `<div class="step-icon">${i + 1}</div><span class="step-label">${label}</span>`;
+            stepsEl.appendChild(div);
+        });
+
+        overlay.style.display = 'flex';
+
+        const totalSteps = cfg.steps.length;
+        let elapsed = 0;
+        for (let i = 0; i < totalSteps; i++) {
+            const stepDuration = 2500 + (i * 500);
+            elapsed += (i === 0) ? 300 : stepDuration;
+            aiStepTimers.push(setTimeout(() => advanceStep(totalSteps), elapsed));
+        }
+
+        setTimeout(() => {
+            aiCurrentStep = 0;
+            markStepActive(0);
+            bar.style.width = '8%';
+        }, 100);
+
+        const formData = new FormData(formEl);
+        const action = formEl.action;
+
+        // Safety timeout: if the server doesn't respond within 3 minutes, reload anyway.
+        // This prevents the overlay from staying forever on hangs.
+        const safetyTimeout = setTimeout(() => {
+            if (!aiServerDone) {
+                aiServerDone = true;
+                console.warn('AI request safety timeout — reloading page');
+                window.location.reload();
+            }
+        }, 180000);
+
+        // Use redirect:'manual' so the fetch does NOT follow the redirect.
+        // This preserves Flask flash messages — they won't be consumed by the fetch.
+        // After the server responds, we just reload the current page to see the result + flash.
+        fetch(action, {
+            method: 'POST',
+            body: formData,
+            redirect: 'manual',
+        }).then(response => {
+            clearTimeout(safetyTimeout);
+            aiServerDone = true;
+            aiStepTimers.forEach(t => clearTimeout(t));
+
+            let delay = 0;
+            for (let i = 0; i < totalSteps; i++) {
+                const el = document.getElementById('ai-step-' + i);
+                if (el && !el.classList.contains('done')) {
+                    delay += 200;
+                    setTimeout(() => {
+                        markStepDone(i);
+                    }, delay);
+                }
+            }
+
+            setTimeout(() => {
+                bar.style.transition = 'width 0.3s ease';
+                bar.style.width = '100%';
+                document.getElementById('ai-title').textContent = 'Complete!';
+                document.getElementById('ai-subtitle').textContent = 'All steps finished — loading results...';
+                pulse.innerHTML = '✅';
+                pulse.style.background = '#dcfce718';
+                pulse.style.animation = 'none';
+                document.getElementById('ai-time-text').textContent = 'Done';
+            }, delay + 100);
+
+            setTimeout(() => {
+                // Reload the page — the server redirect already saved the draft (or flash error)
+                // and this preserves the flash message for the user to see.
+                window.location.reload();
+            }, delay + 800);
+
+        }).catch(err => {
+            clearTimeout(safetyTimeout);
+            aiServerDone = true;
+            document.getElementById('ai-title').textContent = 'Error';
+            document.getElementById('ai-subtitle').textContent = 'Request failed: ' + err.message;
+            pulse.innerHTML = '⚠️';
+            pulse.style.animation = 'none';
+            setTimeout(() => { window.location.reload(); }, 2500);
+        });
+    }
+
+    function showPrepareLoading(btn, evt) {
+        if (evt) evt.preventDefault();
+        const form = btn.closest('form');
+        form.onsubmit = function(e) { e.preventDefault(); return false; };
+        showAIProgress('deepAnalysis', form);
+        return false;
+    }
+
+    function showDraftLoading(btn, evt) {
+        if (evt) evt.preventDefault();
+        const form = btn.closest('form');
+        form.onsubmit = function(e) { e.preventDefault(); return false; };
+        showAIProgress('generateDrafts', form);
+        return false;
+    }
+
+    function showDeclineLoading(btn, evt) {
+        if (evt) evt.preventDefault();
+        const form = btn.closest('form');
+        form.onsubmit = function(e) { e.preventDefault(); return false; };
+        showAIProgress('declineDrafts', form);
+        return false;
+    }
+    </script>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     MAIN CONTENT GRID
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="detail-grid">
+    <!-- TICKET METADATA CARD -->
+    <div class="card">
+        <h3 class="card-heading">Ticket Info</h3>
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Status</div>
+                <div class="meta-value">
+                    {% if ticket.status == 'Open' %}<span class="badge badge-open">Open</span>
+                    {% elif ticket.status == 'Pending' %}<span class="badge badge-pending">Pending</span>
+                    {% elif ticket.status == 'Resolved' %}<span class="badge badge-resolved">Resolved</span>
+                    {% else %}<span class="badge">{{ ticket.status }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Priority</div>
+                <div class="meta-value">{{ ticket.priority }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Requester</div>
+                <div class="meta-value">{{ ticket.requester_name }}<br><small class="meta-sub">{{ ticket.requester_email }}</small></div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Country</div>
+                <div class="meta-value">{{ ticket.country or 'N/A' }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Created</div>
+                <div class="meta-value">{{ ticket.created_at[:10] if ticket.created_at else 'N/A' }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Updated</div>
+                <div class="meta-value">{{ ticket.updated_at[:10] if ticket.updated_at else 'N/A' }}</div>
+            </div>
+            {% if ticket.template_name %}
+            <div class="meta-item">
+                <div class="meta-label">Template</div>
+                <div class="meta-value">{{ ticket.template_name }}</div>
+            </div>
+            {% endif %}
+            {% if ticket.workflow_name %}
+            <div class="meta-item">
+                <div class="meta-label">Workflow</div>
+                <div class="meta-value">{{ ticket.workflow_name }}</div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- AI ANALYSIS CARD -->
+    <div class="card">
+        <h3 class="card-heading">AI Analysis</h3>
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Classification</div>
+                <div class="meta-value">
+                    {% if ticket.classification == 'bug' %}<span class="badge badge-bug">bug</span>
+                    {% elif ticket.classification == 'feature_request' %}<span class="badge badge-feature">feature_request</span>
+                    {% elif ticket.classification == 'how_to' %}<span class="badge badge-howto">how_to</span>
+                    {% else %}<span class="badge">{{ ticket.classification }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Confidence</div>
+                <div class="meta-value">
+                    <strong>{{ ticket.confidence }}%</strong>
+                    <div class="confidence-bar">
+                        <div class="confidence-fill" style="width:{{ ticket.confidence }}%;background:{% if ticket.confidence >= 80 %}var(--success){% elif ticket.confidence >= 50 %}var(--warning){% else %}var(--danger){% endif %};"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Risk Level</div>
+                <div class="meta-value">
+                    {% if ticket.risk_level == 'low' %}<span class="badge badge-low">low</span>
+                    {% elif ticket.risk_level == 'medium' %}<span class="badge badge-medium">medium</span>
+                    {% elif ticket.risk_level == 'high' %}<span class="badge badge-high">high</span>
+                    {% elif ticket.risk_level == 'critical' %}<span class="badge badge-critical">critical</span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Needs Review</div>
+                <div class="meta-value">{{ ticket.needs_review }}</div>
+            </div>
+        </div>
+        <div class="section-spacer">
+            <div class="meta-label">Summary</div>
+            <p class="section-text">{{ ticket.summary }}</p>
+        </div>
+        <div class="section-spacer">
+            <div class="meta-label">Analysis</div>
+            <p class="section-text">{{ ticket.analysis }}</p>
+        </div>
+    </div>
+
+    <!-- RICE PRIORITIZATION SECTION -->
+    <div class="card full">
+        <div class="card-header-with-badge">
+            <h3 class="card-heading">RICE Prioritization Score</h3>
+            <div class="rice-score-badge">
+                <span class="rice-label">RICE SCORE</span>
+                <span id="rice-score-display" class="rice-value" style="background:{% if ticket.rice_score >= 15 %}#dcfce7;color:#166534{% elif ticket.rice_score >= 5 %}#fef3c7;color:#92400e{% elif ticket.rice_score > 0 %}#fee2e2;color:#991b1b{% else %}#f1f5f9;color:#64748b{% endif %};">{{ "%.1f"|format(ticket.rice_score or 0) }}</span>
+            </div>
+        </div>
+        <p class="card-description">
+            RICE = (Reach × Impact × Confidence) / Effort — all factors on fixed scales. Higher score = higher priority.
+        </p>
+        <div class="rice-grid">
+            <!-- REACH (1-10) -->
+            <div class="rice-input-box">
+                <label class="rice-label-colored" style="color:#2563eb;">Reach (1-10)</label>
+                <select form="ticket-form" name="rice_reach" id="rice-reach" class="rice-select" onchange="calcRICE()">
+                    <option value="0" {% if not ticket.rice_reach %}selected{% endif %}>-- Select --</option>
+                    <option value="1" {% if ticket.rice_reach == 1 %}selected{% endif %}>1 - One entity, one client</option>
+                    <option value="2" {% if ticket.rice_reach == 2 %}selected{% endif %}>2 - One client, multiple entities</option>
+                    <option value="3" {% if ticket.rice_reach == 3 %}selected{% endif %}>3 - 2-3 clients affected</option>
+                    <option value="4" {% if ticket.rice_reach == 4 %}selected{% endif %}>4 - Small group of clients</option>
+                    <option value="5" {% if ticket.rice_reach == 5 %}selected{% endif %}>5 - Moderate — users of this template</option>
+                    <option value="6" {% if ticket.rice_reach == 6 %}selected{% endif %}>6 - Many clients (common workflow)</option>
+                    <option value="7" {% if ticket.rice_reach == 7 %}selected{% endif %}>7 - Most clients in this workflow</option>
+                    <option value="8" {% if ticket.rice_reach == 8 %}selected{% endif %}>8 - Majority of LUX clients</option>
+                    <option value="9" {% if ticket.rice_reach == 9 %}selected{% endif %}>9 - Nearly all LUX clients</option>
+                    <option value="10" {% if ticket.rice_reach == 10 %}selected{% endif %}>10 - Every client (platform-wide)</option>
+                </select>
+                <div class="rice-helper">How many clients / entities are affected?</div>
+            </div>
+            <!-- IMPACT (1-5) -->
+            <div class="rice-input-box">
+                <label class="rice-label-colored" style="color:#7c3aed;">Impact (1-5)</label>
+                <select form="ticket-form" name="rice_impact" id="rice-impact" class="rice-select" onchange="calcRICE()">
+                    <option value="0" {% if not ticket.rice_impact %}selected{% endif %}>-- Select --</option>
+                    <option value="1" {% if ticket.rice_impact == 1 %}selected{% endif %}>1 - Cosmetic (formatting, wording)</option>
+                    <option value="2" {% if ticket.rice_impact == 2 %}selected{% endif %}>2 - Minor (small issue, easy workaround)</option>
+                    <option value="3" {% if ticket.rice_impact == 3 %}selected{% endif %}>3 - Moderate (problem, workaround exists)</option>
+                    <option value="4" {% if ticket.rice_impact == 4 %}selected{% endif %}>4 - Significant (wrong data, workflow broken)</option>
+                    <option value="5" {% if ticket.rice_impact == 5 %}selected{% endif %}>5 - Critical (compliance, calculation, blocking)</option>
+                </select>
+                <div class="rice-helper">How severely does it affect each user?</div>
+            </div>
+            <!-- CONFIDENCE (1-5) -->
+            <div class="rice-input-box">
+                <label class="rice-label-colored" style="color:#059669;">Confidence (1-5)</label>
+                <select form="ticket-form" name="rice_confidence" id="rice-confidence" class="rice-select" onchange="calcRICE()">
+                    <option value="0" {% if not ticket.rice_confidence %}selected{% endif %}>-- Select --</option>
+                    <option value="1" {% if ticket.rice_confidence == 1 %}selected{% endif %}>1 - Very low (vague ticket, unclear)</option>
+                    <option value="2" {% if ticket.rice_confidence == 2 %}selected{% endif %}>2 - Low (general idea, missing details)</option>
+                    <option value="3" {% if ticket.rice_confidence == 3 %}selected{% endif %}>3 - Medium (reasonable, some assumptions)</option>
+                    <option value="4" {% if ticket.rice_confidence == 4 %}selected{% endif %}>4 - High (clear description, evidence)</option>
+                    <option value="5" {% if ticket.rice_confidence == 5 %}selected{% endif %}>5 - Very high (fully clear, regulation-backed)</option>
+                </select>
+                <div class="rice-helper">How confident are we in these estimates?</div>
+            </div>
+            <!-- EFFORT (1-10) -->
+            <div class="rice-input-box">
+                <label class="rice-label-colored" style="color:#dc2626;">Effort (1-10)</label>
+                <select form="ticket-form" name="rice_effort" id="rice-effort" class="rice-select" onchange="calcRICE()">
+                    <option value="0" {% if not ticket.rice_effort %}selected{% endif %}>-- Select --</option>
+                    <option value="1" {% if ticket.rice_effort == 1 %}selected{% endif %}>1 - ~1h (label, translation fix)</option>
+                    <option value="2" {% if ticket.rice_effort == 2 %}selected{% endif %}>2 - ~2-3h (toggle, one field change)</option>
+                    <option value="3" {% if ticket.rice_effort == 3 %}selected{% endif %}>3 - ~half day (single logic change)</option>
+                    <option value="4" {% if ticket.rice_effort == 4 %}selected{% endif %}>4 - ~1 day (new section, conditions)</option>
+                    <option value="5" {% if ticket.rice_effort == 5 %}selected{% endif %}>5 - ~2 days (complex multi-field)</option>
+                    <option value="6" {% if ticket.rice_effort == 6 %}selected{% endif %}>6 - ~3 days (linked templates)</option>
+                    <option value="7" {% if ticket.rice_effort == 7 %}selected{% endif %}>7 - ~1 week (full section + logic)</option>
+                    <option value="8" {% if ticket.rice_effort == 8 %}selected{% endif %}>8 - ~2 weeks (major restructure)</option>
+                    <option value="9" {% if ticket.rice_effort == 9 %}selected{% endif %}>9 - ~3-4 weeks (large feature)</option>
+                    <option value="10" {% if ticket.rice_effort == 10 %}selected{% endif %}>10 - ~1 month+ (new template/workflow)</option>
+                </select>
+                <div class="rice-helper">Dev effort: 1=1h, 3=half day, 4=1 day, 7=1 week</div>
+            </div>
+        </div>
+        <script>
+        function calcRICE() {
+            const reach = parseFloat(document.getElementById('rice-reach').value) || 0;
+            const impact = parseFloat(document.getElementById('rice-impact').value) || 0;
+            const confidence = parseFloat(document.getElementById('rice-confidence').value) || 0;
+            const effort = parseFloat(document.getElementById('rice-effort').value) || 0;
+            const score = effort > 0 ? ((reach * impact * confidence) / effort) : 0;
+            const display = document.getElementById('rice-score-display');
+            display.textContent = score.toFixed(1);
+            if (score >= 15) { display.style.background = '#dcfce7'; display.style.color = '#166534'; }
+            else if (score >= 5) { display.style.background = '#fef3c7'; display.style.color = '#92400e'; }
+            else if (score > 0) { display.style.background = '#fee2e2'; display.style.color = '#991b1b'; }
+            else { display.style.background = '#f1f5f9'; display.style.color = '#64748b'; }
+        }
+        </script>
+
+        <div class="rice-save-wrapper">
+            <form id="rice-save-form" method="POST" action="{{ url_for('update_ticket', ticket_id=ticket.ticket_id) }}">
+                <input type="hidden" name="rice_reach" id="rice-save-reach">
+                <input type="hidden" name="rice_impact" id="rice-save-impact">
+                <input type="hidden" name="rice_confidence" id="rice-save-confidence">
+                <input type="hidden" name="rice_effort" id="rice-save-effort">
+                <input type="hidden" name="review_status" value="{{ ticket.review_status or 'Pending' }}">
+                <input type="hidden" name="draft_response" value="{{ ticket.draft_response or '' }}">
+                <input type="hidden" name="draft_response_en" value="{{ ticket.draft_response_en or '' }}">
+                <button type="submit" class="btn btn-secondary" onclick="syncRICEHidden()">
+                    Save RICE Scores
+                </button>
+            </form>
+        </div>
+        <script>
+        function syncRICEHidden() {
+            document.getElementById('rice-save-reach').value = document.getElementById('rice-reach').value;
+            document.getElementById('rice-save-impact').value = document.getElementById('rice-impact').value;
+            document.getElementById('rice-save-confidence').value = document.getElementById('rice-confidence').value;
+            document.getElementById('rice-save-effort').value = document.getElementById('rice-effort').value;
+        }
+        </script>
+    </div>
+
+    <!-- PO DECISION PANEL -->
+    <div class="card full" id="po-decision-panel">
+        <div class="card-header-with-badge">
+            <h3 class="card-heading">PO Decision</h3>
+            {% if ticket.po_decision|lower == 'approved' %}
+            <span class="decision-badge decision-approved">APPROVED</span>
+            {% elif ticket.po_decision|lower == 'declined' %}
+            <span class="decision-badge decision-declined">DECLINED</span>
+            {% else %}
+            <span class="decision-badge decision-pending">Awaiting Decision</span>
+            {% endif %}
+        </div>
+
+        {% if ticket.po_decision and ticket.po_decision|lower != 'pending' %}
+        <!-- Decision already made -->
+        <div class="decision-summary" style="border-color:{% if ticket.po_decision|lower == 'approved' %}#86efac{% else %}#fca5a5{% endif %};background-color:{% if ticket.po_decision|lower == 'approved' %}#f0fdf4{% else %}#fef2f2{% endif %};">
+            <div class="decision-icon">
+                {% if ticket.po_decision|lower == 'approved' %}&#9989;{% else %}&#10060;{% endif %}
+            </div>
+            <div class="decision-content">
+                <div class="decision-title">
+                    {% if ticket.po_decision|lower == 'approved' %}
+                    This ticket has been approved for action.
+                    {% else %}
+                    This ticket has been declined.
+                    {% endif %}
+                </div>
+                {% if ticket.po_decision_reason %}
+                <div class="decision-reason">
+                    <strong>Reason:</strong> {{ ticket.po_decision_reason }}
+                </div>
+                {% endif %}
+                {% if ticket.po_decision_date %}
+                <div class="decision-date">
+                    Decision recorded: {{ ticket.po_decision_date[:16] | replace('T', ' ') }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <details class="change-decision-details">
+            <summary>Change decision...</summary>
+            <form method="POST" action="{{ url_for('po_decision', ticket_id=ticket.ticket_id) }}" class="change-decision-form">
+                <div>
+                    <label class="form-label">Reason (optional)</label>
+                    <input type="text" name="reason" placeholder="Why are you changing the decision?" class="form-input">
+                </div>
+                <div class="button-group">
+                    <button type="submit" name="decision" value="approved" class="btn btn-success">Approve</button>
+                    <button type="submit" name="decision" value="declined" class="btn" style="background:#dc2626;color:white;">Decline</button>
+                </div>
+            </form>
+        </details>
+
+        {% else %}
+        <!-- No decision yet -->
+        <div class="decision-guidance">
+            <p class="guidance-title">Review the analysis and RICE score above, then decide whether to proceed.</p>
+            <p class="guidance-text">
+                <strong>Approve</strong> = the ticket is worth fixing. Draft responses will be generated: client reply + internal note + backlog ticket.<br>
+                <strong>Decline</strong> = the ticket will not be actioned. A decline response will be generated: explains to the client why (regulation, design, priority) + internal note.
+            </p>
+        </div>
+
+        <form method="POST" action="{{ url_for('po_decision', ticket_id=ticket.ticket_id) }}" class="po-decision-form">
+            <div>
+                <label class="form-label">Reason / Notes (optional — helpful for the team to understand your decision)</label>
+                <textarea name="reason" rows="2" placeholder="e.g. 'Low impact, only affects one client' or 'Critical compliance issue, fix ASAP'" class="form-textarea"></textarea>
+            </div>
+            <div class="button-group-large">
+                <button type="submit" name="decision" value="approved" class="btn btn-success btn-lg">
+                    <span>✅</span> Approve — Proceed with Fix
+                </button>
+                <button type="submit" name="decision" value="declined" class="btn btn-lg" style="background:#dc2626;color:white;">
+                    <span>❌</span> Decline — Not Now
+                </button>
+            </div>
+        </form>
+        {% endif %}
+    </div>
+
+    <!-- DRAFT RESPONSE SECTION -->
+    <div class="card full">
+        <div class="card-header-with-badge">
+            <h3 class="card-heading">Draft Response</h3>
+
+            {% if ticket.po_decision|lower in ('approved', 'declined') and (ticket.draft_response or ticket.draft_response_en) %}
+            <div class="language-toggle">
+                <label class="language-toggle-label">LANGUAGE</label>
+                <div class="language-buttons">
+                    <button type="button" id="btn-lang-fr" onclick="switchLanguage('fr')" class="language-btn active">FR</button>
+                    <button type="button" id="btn-lang-en" onclick="switchLanguage('en')" class="language-btn">EN</button>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Inline screenshots from Freshdesk (visible while editing the draft) -->
+        <div id="inline-screenshots-strip" style="display:none;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <span style="font-size:0.8em;font-weight:600;color:#475569;display:flex;align-items:center;gap:6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                    Attachments from Freshdesk
+                    <button type="button" id="btn-refresh-screenshots" onclick="refreshScreenshots()" style="padding:2px 8px;font-size:0.85em;border:1px solid #6366f1;background:#eef2ff;color:#4f46e5;border-radius:4px;cursor:pointer;" title="Re-fetch images from Freshdesk">🔄 Refresh</button>
+                </span>
+                <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank"
+                   style="font-size:0.75em;color:#6366f1;text-decoration:none;display:flex;align-items:center;gap:4px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                    Open in Freshdesk
+                </a>
+            </div>
+            <div id="inline-screenshots-row" style="display:flex;gap:8px;overflow-x:auto;padding:4px 0;"></div>
+        </div>
+
+        {% if ticket.po_decision|lower == 'declined' %}
+        <!-- Declined: Generate decline response -->
+
+        {% if not ticket.draft_response and not ticket.draft_response_en %}
+        <div class="draft-prompt-card declined">
+            <div class="draft-prompt-icon">❌</div>
+            <p class="draft-prompt-title">This ticket was declined. Generate a response to explain the decision.</p>
+            <p class="draft-prompt-description">
+                Click the button below to generate a professional decline response in French and English.<br>
+                The response will explain to the client why this request will not be actioned — citing the specific reason
+                (regulation, design decision, priority, etc.).
+            </p>
+            <form method="POST" action="{{ url_for('generate_decline_drafts', ticket_id=ticket.ticket_id) }}" class="draft-form">
+                <button type="submit" class="btn" style="background:#dc2626;color:white;font-size:1.05em;padding:12px 32px;font-weight:700;" onclick="return showDeclineLoading(this, event)">
+                    Generate Decline Response (FR + EN)
+                </button>
+            </form>
+        </div>
+        {% else %}
+        <!-- Decline drafts exist -->
+
+        <div class="draft-regenerate">
+            <form method="POST" action="{{ url_for('generate_decline_drafts', ticket_id=ticket.ticket_id) }}" style="display:inline;">
+                <button type="submit" class="btn btn-secondary" onclick="if(!confirm('This will overwrite the existing decline response. Are you sure?')) return false; return showDeclineLoading(this, event);">
+                    Regenerate Decline Response
+                </button>
+            </form>
+        </div>
+
+        <div id="draft-fr-section">
+            <textarea form="ticket-form" name="draft_response" id="decline-textarea-fr" class="draft-textarea declined">{{ ticket.draft_response }}</textarea>
+        </div>
+        <div id="draft-en-section" style="display:none;">
+            <textarea form="ticket-form" name="draft_response_en" id="decline-textarea-en" class="draft-textarea declined">{{ ticket.draft_response_en }}</textarea>
+        </div>
+        {% endif %}
+
+        {% elif ticket.po_decision|lower != 'approved' %}
+        <!-- Pending: Waiting for PO decision -->
+        <div class="draft-pending-card">
+            <div class="draft-prompt-icon">⏰</div>
+            <p class="draft-prompt-title">Waiting for PO decision</p>
+            <p class="draft-prompt-description">
+                The Product Owner must approve this ticket before draft responses can be generated.
+                Review the analysis and RICE score above, then click <strong>Approve</strong> or <strong>Decline</strong>.
+            </p>
+        </div>
+
+        {% else %}
+        <!-- Approved: Show or generate drafts -->
+
+        {% if not ticket.draft_response and not ticket.draft_response_en %}
+        <div class="draft-prompt-card approved">
+            <div class="draft-prompt-icon">✅</div>
+            <p class="draft-prompt-title">Ticket approved! Ready to generate draft responses.</p>
+            <p class="draft-prompt-description">
+                Click the button below to generate draft responses in French and English using AI.<br>
+                This will create a client response, an internal note for BSO LUX, and a backlog ticket description.
+            </p>
+            <form method="POST" action="{{ url_for('generate_drafts', ticket_id=ticket.ticket_id) }}" class="draft-form">
+                <button type="submit" class="btn btn-success" style="font-size:1.05em;padding:12px 32px;font-weight:700;" onclick="return showDraftLoading(this, event)">
+                    Generate Draft Responses (FR + EN)
+                </button>
+            </form>
+        </div>
+        {% else %}
+        <!-- Drafts exist -->
+
+        <div id="draft-sections-display"></div>
+
+        <div class="draft-regenerate">
+            <form method="POST" action="{{ url_for('generate_drafts', ticket_id=ticket.ticket_id) }}" style="display:inline;">
+                <button type="submit" class="btn btn-secondary" onclick="if(!confirm('This will overwrite existing drafts. Are you sure?')) return false; return showDraftLoading(this, event);">
+                    Regenerate Drafts
+                </button>
+            </form>
+        </div>
+
+        <form id="ticket-form" method="POST" action="{{ url_for('update_ticket', ticket_id=ticket.ticket_id) }}">
+            <!-- FR editor -->
+            <div id="editor-fr" class="draft-editor">
+                <label class="form-label">EDIT DRAFT RESPONSE (FRENCH)</label>
+                <div class="rich-editor-toolbar">
+                    <button type="button" onclick="insertImageFromPicker('fr')" title="Insert image from ticket screenshots" class="toolbar-btn">🖼️ Insert Image</button>
+                    <button type="button" onclick="document.getElementById('upload-img-fr').click()" title="Upload image from your computer" class="toolbar-btn">📎 Upload</button>
+                    <input type="file" id="upload-img-fr" accept="image/*" style="display:none;" onchange="handleEditorUpload(this, 'fr')">
+                    <span style="font-size:0.7em;color:#94a3b8;margin-left:auto;">Tip: paste images directly (Ctrl+V)</span>
+                </div>
+                <div contenteditable="true" id="richtext-fr" class="rich-editor" data-lang="fr"></div>
+                <textarea name="draft_response" id="textarea-fr" style="display:none;">{{ ticket.draft_response or '' }}</textarea>
+            </div>
+
+            <!-- EN editor -->
+            <div id="editor-en" class="draft-editor" style="display:none;">
+                <label class="form-label">EDIT DRAFT RESPONSE (ENGLISH)</label>
+                <div class="rich-editor-toolbar">
+                    <button type="button" onclick="insertImageFromPicker('en')" title="Insert image from ticket screenshots" class="toolbar-btn">🖼️ Insert Image</button>
+                    <button type="button" onclick="document.getElementById('upload-img-en').click()" title="Upload image from your computer" class="toolbar-btn">📎 Upload</button>
+                    <input type="file" id="upload-img-en" accept="image/*" style="display:none;" onchange="handleEditorUpload(this, 'en')">
+                    <span style="font-size:0.7em;color:#94a3b8;margin-left:auto;">Tip: paste images directly (Ctrl+V)</span>
+                </div>
+                <div contenteditable="true" id="richtext-en" class="rich-editor" data-lang="en"></div>
+                <textarea name="draft_response_en" id="textarea-en" style="display:none;">{{ ticket.draft_response_en or '' }}</textarea>
+            </div>
+
+            <div class="draft-controls">
+                <div>
+                    <label class="form-label">REVIEW STATUS</label>
+                    <select name="review_status" class="form-input">
+                        {% for rs in ["Pending", "Reviewed", "Sent", "Rejected"] %}
+                        <option value="{{ rs }}" {% if ticket.review_status == rs %}selected{% endif %}>{{ rs }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label class="form-label">NEXT STEPS</label>
+                    <input type="text" name="next_steps" value="{{ ticket.next_steps or '' }}" placeholder="Any next steps..." class="form-input">
+                </div>
+                <button type="submit" class="btn btn-success">Save Changes</button>
+            </div>
+        </form>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <script>
+    // ── Inline screenshots from Freshdesk ──
+    // Keep a global list the other pieces can read (AI-chat picker, insert button)
+    window.__ticketScreenshots = [];
+    window.__pinnedScreenshots = new Set();  // filenames currently pinned for next AI-chat message
+
+    function getLastFocusedDraftTextarea() {
+        // The draft textareas we care about (approved & declined, FR & EN)
+        var ids = ['textarea-fr', 'textarea-en', 'decline-textarea-fr', 'decline-textarea-en'];
+        // Prefer whichever textarea currently matches the visible language
+        var lang = (typeof currentLang !== 'undefined') ? currentLang : 'fr';
+        var preferred = lang === 'fr'
+            ? [document.getElementById('textarea-fr'), document.getElementById('decline-textarea-fr')]
+            : [document.getElementById('textarea-en'), document.getElementById('decline-textarea-en')];
+        for (var i=0; i<preferred.length; i++) {
+            if (preferred[i] && preferred[i].offsetParent !== null) return preferred[i];
+        }
+        // Fallback: first visible textarea from the set
+        for (var j=0; j<ids.length; j++) {
+            var el = document.getElementById(ids[j]);
+            if (el && el.offsetParent !== null) return el;
+        }
+        return null;
+    }
+
+    function insertImagePlaceholder(filename) {
+        var ta = getLastFocusedDraftTextarea();
+        if (!ta) {
+            alert('Open a draft response first, then click Insert.');
+            return;
+        }
+        var token = '[IMAGE: ' + filename + ']';
+        var start = ta.selectionStart || 0;
+        var end = ta.selectionEnd || 0;
+        // Add a newline buffer so the image sits on its own line
+        var prefix = (start > 0 && ta.value[start-1] !== '\n') ? '\n' : '';
+        var suffix = (end < ta.value.length && ta.value[end] !== '\n') ? '\n' : '';
+        var before = ta.value.substring(0, start);
+        var after = ta.value.substring(end);
+        ta.value = before + prefix + token + suffix + after;
+        var newPos = before.length + prefix.length + token.length + suffix.length;
+        ta.focus();
+        ta.setSelectionRange(newPos, newPos);
+        // Flash the thumb so the user sees confirmation
+    }
+
+    function togglePinForAI(filename, btnEl) {
+        if (window.__pinnedScreenshots.has(filename)) {
+            window.__pinnedScreenshots.delete(filename);
+            btnEl.textContent = '📌 Pin to AI';
+            btnEl.style.background = '#f1f5f9';
+            btnEl.style.color = '#475569';
+        } else {
+            window.__pinnedScreenshots.add(filename);
+            btnEl.textContent = '✅ Pinned';
+            btnEl.style.background = '#6366f1';
+            btnEl.style.color = '#fff';
+        }
+        updatePinnedCountBadge();
+    }
+
+    function updatePinnedCountBadge() {
+        var badge = document.getElementById('ai-pinned-count');
+        if (!badge) return;
+        var n = window.__pinnedScreenshots.size;
+        if (n > 0) {
+            badge.style.display = '';
+            badge.textContent = n + ' image' + (n > 1 ? 's' : '') + ' pinned';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    (function() {
+        try {
+            var rawJson = {{ (ticket.screenshots_json or '[]')|tojson }};
+            var screenshotsList = typeof rawJson === 'string' ? JSON.parse(rawJson) : (rawJson || []);
+        } catch(e) {
+            var screenshotsList = [];
+        }
+        window.__ticketScreenshots = screenshotsList || [];
+        // Always show the strip (so Refresh button is accessible even when no screenshots yet)
+        var strip = document.getElementById('inline-screenshots-strip');
+        if (strip) strip.style.display = '';
+        if (screenshotsList.length > 0) {
+            var row = document.getElementById('inline-screenshots-row');
+            if (row) {
+                screenshotsList.forEach(function(ss) {
+                    var imgUrl = '/screenshots/{{ ticket.ticket_id }}/' + encodeURIComponent(ss.filename);
+                    var thumb = document.createElement('div');
+                    thumb.style.cssText = 'flex:0 0 auto;width:180px;border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;background:#f8fafc;';
+                    thumb.innerHTML =
+                        '<img src="' + imgUrl + '" style="width:100%;height:100px;object-fit:cover;cursor:zoom-in;" loading="lazy" title="' + (ss.source||'') + ': ' + ss.filename + '">' +
+                        '<div style="padding:4px 6px;font-size:0.65em;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px;border-top:1px solid #f1f5f9;">' +
+                        '<input type="checkbox" class="screenshot-checkbox" data-filename="' + ss.filename + '" checked style="width:12px;height:12px;" title="Attach when posting to Freshdesk">' +
+                        '<span title="' + ss.filename + '" style="flex:1;overflow:hidden;text-overflow:ellipsis;">' + ss.filename + '</span></div>' +
+                        '<div style="display:flex;gap:4px;padding:4px 6px;border-top:1px solid #f1f5f9;background:#fff;">' +
+                        '<button type="button" class="btn-ss-insert" data-filename="' + ss.filename + '" style="flex:1;padding:4px 6px;font-size:0.7em;border:1px solid #6366f1;background:#eef2ff;color:#4f46e5;border-radius:4px;cursor:pointer;font-weight:600;">➕ Insert</button>' +
+                        '<button type="button" class="btn-ss-pin" data-filename="' + ss.filename + '" style="flex:1;padding:4px 6px;font-size:0.7em;border:1px solid #cbd5e1;background:#f1f5f9;color:#475569;border-radius:4px;cursor:pointer;font-weight:600;">📌 Pin to AI</button>' +
+                        '</div>';
+                    thumb.querySelector('img').addEventListener('click', function() {
+                        openScreenshotModal(imgUrl, ss.filename);
+                    });
+                    thumb.querySelector('.btn-ss-insert').addEventListener('click', function(ev) {
+                        ev.preventDefault();
+                        insertImagePlaceholder(ss.filename);
+                    });
+                    thumb.querySelector('.btn-ss-pin').addEventListener('click', function(ev) {
+                        ev.preventDefault();
+                        togglePinForAI(ss.filename, this);
+                    });
+                    row.appendChild(thumb);
+                });
+            }
+        }
+    })();
+
+    function getSelectedScreenshots() {
+        var selected = [];
+        document.querySelectorAll('.screenshot-checkbox:checked').forEach(function(cb) {
+            selected.push(cb.dataset.filename);
+        });
+        return selected;
+    }
+
+    function refreshScreenshots() {
+        var btn = document.getElementById('btn-refresh-screenshots');
+        if (btn) { btn.disabled = true; btn.textContent = '⏳ Fetching...'; }
+        fetch('/ticket/{{ ticket.ticket_id }}/refresh-screenshots', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                // Reload the page to pick up the new screenshots
+                location.reload();
+            } else {
+                alert('Refresh failed: ' + (data.message || 'Unknown error'));
+                if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh'; }
+            }
+        })
+        .catch(function(err) {
+            alert('Refresh error: ' + err);
+            if (btn) { btn.disabled = false; btn.textContent = '🔄 Refresh'; }
+        });
+    }
+
+    function openScreenshotModal(url, name) {
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10000;display:flex;align-items:center;justify-content:center;cursor:pointer;';
+        overlay.onclick = function() { document.body.removeChild(overlay); };
+        overlay.innerHTML = '<div style="max-width:90%;max-height:90%;position:relative;" onclick="event.stopPropagation()">' +
+            '<img src="' + url + '" style="max-width:100%;max-height:85vh;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,0.5);">' +
+            '<div style="text-align:center;color:white;padding:8px;font-size:0.85em;">' + name + '</div>' +
+            '<button onclick="this.closest(\'div\').parentElement.click()" style="position:absolute;top:-12px;right:-12px;background:#fff;border:none;border-radius:50%;width:28px;height:28px;cursor:pointer;font-size:16px;box-shadow:0 2px 8px rgba(0,0,0,0.3);">✕</button>' +
+            '</div>';
+        document.body.appendChild(overlay);
+    }
+
+    let currentLang = 'fr';
+
+    function switchLanguage(lang) {
+        currentLang = lang;
+        const btnFr = document.getElementById('btn-lang-fr');
+        const btnEn = document.getElementById('btn-lang-en');
+        const editorFr = document.getElementById('editor-fr');
+        const editorEn = document.getElementById('editor-en');
+        // Also handle declined ticket sections
+        const declineFr = document.getElementById('draft-fr-section');
+        const declineEn = document.getElementById('draft-en-section');
+
+        if (!btnFr || !btnEn) return;
+
+        if (lang === 'fr') {
+            btnFr.classList.add('active');
+            btnEn.classList.remove('active');
+            if (editorFr) editorFr.style.display = 'block';
+            if (editorEn) editorEn.style.display = 'none';
+            if (declineFr) declineFr.style.display = 'block';
+            if (declineEn) declineEn.style.display = 'none';
+        } else {
+            btnEn.classList.add('active');
+            btnFr.classList.remove('active');
+            if (editorFr) editorFr.style.display = 'none';
+            if (editorEn) editorEn.style.display = 'block';
+            if (declineFr) declineFr.style.display = 'none';
+            if (declineEn) declineEn.style.display = 'block';
+        }
+        parseDraftResponse();
+    }
+
+    function parseDraftResponse() {
+        const container = document.getElementById('draft-sections-display');
+        if (!container) return;
+
+        const textareaId = currentLang === 'fr' ? 'textarea-fr' : 'textarea-en';
+        const textarea = document.getElementById(textareaId);
+        if (!textarea) return;
+
+        const draftText = textarea.value;
+
+        if (!draftText.trim()) {
+            const noContentMsg = currentLang === 'fr'
+                ? 'Pas encore de reponse. Cliquez sur "Generate Draft Responses" pour en creer.'
+                : 'No draft response yet. Click "Generate Draft Responses" to create one.';
+            container.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">' + noContentMsg + '</p>';
+            return;
+        }
+
+        const sections = [
+            {
+                header: '--- CLIENT RESPONSE ---',
+                label_fr: 'REPONSE CLIENT',
+                label_en: 'CLIENT RESPONSE',
+                bgColor: '#f0fdf4',
+                borderColor: '#86efac',
+                headerBg: '#dcfce7',
+                icon: '💬'
+            },
+            {
+                header: '--- INTERNAL NOTE (BSO LUX) ---',
+                label_fr: 'NOTE INTERNE (BSO LUX)',
+                label_en: 'INTERNAL NOTE (BSO LUX)',
+                bgColor: '#f0f9ff',
+                borderColor: '#93c5fd',
+                headerBg: '#dbeafe',
+                icon: '📝'
+            },
+            {
+                header: '--- BACKLOG TICKET ---',
+                label_fr: 'TICKET BACKLOG',
+                label_en: 'BACKLOG TICKET',
+                bgColor: '#fef3c7',
+                borderColor: '#fcd34d',
+                headerBg: '#fde68a',
+                icon: '📋'
+            }
+        ];
+
+        const foundSections = [];
+        const lines = draftText.split('\n');
+        let currentSection = null;
+        let currentContent = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const trimmedLine = lines[i].trim();
+            let matchedSection = null;
+
+            for (let section of sections) {
+                if (trimmedLine === section.header) {
+                    if (currentSection) {
+                        foundSections.push({
+                            ...currentSection,
+                            content: currentContent.join('\n').trim()
+                        });
+                    }
+                    matchedSection = section;
+                    currentContent = [];
+                    break;
+                }
+            }
+
+            if (matchedSection) {
+                currentSection = matchedSection;
+            } else if (currentSection) {
+                currentContent.push(lines[i]);
+            }
+        }
+
+        if (currentSection && currentContent.length > 0) {
+            foundSections.push({
+                ...currentSection,
+                content: currentContent.join('\n').trim()
+            });
+        }
+
+        if (foundSections.length === 0) {
+            container.innerHTML = '<p style="color:var(--text-muted);font-style:italic;">No structured sections found. The draft may not follow the expected format.</p>';
+        } else {
+            let html = '';
+            for (let idx = 0; idx < foundSections.length; idx++) {
+                const section = foundSections[idx];
+                const label = currentLang === 'fr' ? section.label_fr : section.label_en;
+                let renderedContent = section.content.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                // Render [IMAGE: filename] tokens as inline <img> thumbnails
+                renderedContent = renderedContent.replace(/\[IMAGE:\s*([^\]]+?)\s*\]/gi, function(match, fname) {
+                    var imgUrl = '/screenshots/{{ ticket.ticket_id }}/' + encodeURIComponent(fname.trim());
+                    return '<div style="margin:8px 0;"><img src="' + imgUrl + '" style="max-width:320px;max-height:200px;border-radius:6px;border:1px solid #d1d5db;cursor:pointer;" onclick="openScreenshotModal(\'' + imgUrl + '\', \'' + fname.trim().replace(/'/g, "\\'") + '\')" title="' + fname.trim() + '"></div>';
+                });
+                // Convert newlines to <br>
+                renderedContent = renderedContent.replace(/\n/g, '<br>');
+                html += `
+                    <div class="section-card" style="border-color:${section.borderColor};background-color:${section.bgColor};">
+                        <div class="section-header" style="background-color:${section.headerBg};border-bottom-color:${section.borderColor};">
+                            <span class="section-title"><span class="section-icon">${section.icon}</span> ${label}</span>
+                            <button type="button" onclick="copySection(${idx})" class="copy-btn" style="border-color:${section.borderColor};" id="copy-btn-${idx}">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                Copy
+                            </button>
+                        </div>
+                        <div class="section-content" id="section-content-${idx}">
+                            ${renderedContent}
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+    }
+
+    function copySection(idx) {
+        const el = document.getElementById('section-content-' + idx);
+        if (!el) return;
+        const text = el.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.getElementById('copy-btn-' + idx);
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#16a34a" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+            btn.style.color = '#16a34a';
+            btn.style.borderColor = '#86efac';
+            setTimeout(() => { btn.innerHTML = orig; btn.style.color = '#374151'; btn.style.borderColor = ''; }, 2000);
+        });
+    }
+
+    // ── Rich Text Editor ──────────────────────────────────────────────
+
+    /** Convert plain text (with [IMAGE: ...] tokens) → HTML for the rich editor */
+    function textToRichHtml(text) {
+        if (!text) return '';
+        // Escape HTML
+        var html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        // Replace [IMAGE: filename] tokens with actual <img> tags
+        html = html.replace(/\[IMAGE:\s*([^\]]+?)\s*\]/gi, function(match, fname) {
+            var imgUrl = '/screenshots/{{ ticket.ticket_id }}/' + encodeURIComponent(fname.trim());
+            return '<img src="' + imgUrl + '" data-filename="' + fname.trim().replace(/"/g,'&quot;') + '" title="' + fname.trim().replace(/"/g,'&quot;') + '" onclick="openScreenshotModal(\'' + imgUrl + '\', \'' + fname.trim().replace(/'/g,"\\'") + '\')">';
+        });
+        // Convert newlines to <br> (but not double — they become paragraph breaks)
+        html = html.replace(/\n/g, '<br>');
+        return html;
+    }
+
+    /** Convert rich editor HTML → plain text (with [IMAGE: ...] tokens) */
+    function richHtmlToText(editor) {
+        // Clone the editor to work on a copy
+        var clone = editor.cloneNode(true);
+        // Replace <img> with [IMAGE: filename]
+        clone.querySelectorAll('img').forEach(function(img) {
+            var fname = img.getAttribute('data-filename') || '';
+            if (fname) {
+                img.replaceWith('[IMAGE: ' + fname + ']');
+            } else {
+                // Uploaded image — store as base64 reference (will be handled separately)
+                img.replaceWith('[PASTED_IMAGE]');
+            }
+        });
+        // Replace <br> with newlines
+        clone.querySelectorAll('br').forEach(function(br) {
+            br.replaceWith('\n');
+        });
+        // Replace block-level elements with newlines
+        clone.querySelectorAll('div, p').forEach(function(el) {
+            el.prepend(document.createTextNode('\n'));
+        });
+        var text = clone.textContent || clone.innerText || '';
+        // Clean up double newlines
+        text = text.replace(/\n{3,}/g, '\n\n').trim();
+        return text;
+    }
+
+    /** Sync the rich editor content back to the hidden textarea */
+    function syncEditorToTextarea(lang) {
+        var editor = document.getElementById('richtext-' + lang);
+        var textarea = document.getElementById('textarea-' + lang);
+        if (editor && textarea) {
+            textarea.value = richHtmlToText(editor);
+        }
+    }
+
+    /** Initialize the rich editor from the textarea content */
+    function initRichEditor(lang) {
+        var editor = document.getElementById('richtext-' + lang);
+        var textarea = document.getElementById('textarea-' + lang);
+        if (!editor || !textarea) return;
+
+        // Populate the rich editor from the textarea
+        editor.innerHTML = textToRichHtml(textarea.value);
+
+        // Sync on every input
+        editor.addEventListener('input', function() {
+            syncEditorToTextarea(lang);
+            parseDraftResponse();
+        });
+
+        // Handle paste — intercept images
+        editor.addEventListener('paste', function(e) {
+            var items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            var hasImage = false;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].type.indexOf('image') !== -1) {
+                    hasImage = true;
+                    e.preventDefault();
+                    var file = items[i].getAsFile();
+                    insertImageFileIntoEditor(file, lang);
+                    break;
+                }
+            }
+            if (!hasImage) {
+                // For text paste, strip formatting and paste plain text
+                e.preventDefault();
+                var text = (e.clipboardData || e.originalEvent.clipboardData).getData('text/plain');
+                document.execCommand('insertText', false, text);
+            }
+        });
+
+        // Handle drag & drop images
+        editor.addEventListener('drop', function(e) {
+            var files = e.dataTransfer.files;
+            for (var i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image/')) {
+                    e.preventDefault();
+                    insertImageFileIntoEditor(files[i], lang);
+                    return;
+                }
+            }
+        });
+        editor.addEventListener('dragover', function(e) {
+            if (e.dataTransfer.types.indexOf('Files') !== -1) {
+                e.preventDefault();
+                editor.style.borderColor = '#6366f1';
+                editor.style.background = '#eef2ff';
+            }
+        });
+        editor.addEventListener('dragleave', function() {
+            editor.style.borderColor = '';
+            editor.style.background = '';
+        });
+    }
+
+    /** Insert an image file (from paste, drag, or upload) into the rich editor */
+    function insertImageFileIntoEditor(file, lang) {
+        var editor = document.getElementById('richtext-' + lang);
+        if (!editor) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+            // Upload the file to the server so it gets a proper screenshot path
+            var formData = new FormData();
+            formData.append('file', file);
+            fetch('/ticket/{{ ticket.ticket_id }}/upload-screenshot', {
+                method: 'POST',
+                body: formData
+            }).then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.success) {
+                    var imgUrl = '/screenshots/{{ ticket.ticket_id }}/' + encodeURIComponent(data.filename);
+                    var img = document.createElement('img');
+                    img.src = imgUrl;
+                    img.setAttribute('data-filename', data.filename);
+                    img.title = data.filename;
+                    img.onclick = function() { openScreenshotModal(imgUrl, data.filename); };
+
+                    // Insert at cursor position or append
+                    var sel = window.getSelection();
+                    if (sel.rangeCount && editor.contains(sel.anchorNode)) {
+                        var range = sel.getRangeAt(0);
+                        range.deleteContents();
+                        range.insertNode(img);
+                        range.setStartAfter(img);
+                        range.collapse(true);
+                        sel.removeAllRanges();
+                        sel.addRange(range);
+                    } else {
+                        editor.appendChild(document.createElement('br'));
+                        editor.appendChild(img);
+                    }
+                    editor.appendChild(document.createElement('br'));
+                    syncEditorToTextarea(lang);
+                    parseDraftResponse();
+                    // Also refresh the screenshot strip
+                    location.reload();
+                } else {
+                    // Fallback: insert as inline base64
+                    var img = document.createElement('img');
+                    img.src = e.target.result;
+                    img.setAttribute('data-filename', file.name || 'pasted_image.png');
+                    editor.appendChild(document.createElement('br'));
+                    editor.appendChild(img);
+                    editor.appendChild(document.createElement('br'));
+                    syncEditorToTextarea(lang);
+                }
+            }).catch(function() {
+                // Network error — insert as base64 fallback
+                var img = document.createElement('img');
+                img.src = e.target.result;
+                img.setAttribute('data-filename', file.name || 'pasted_image.png');
+                editor.appendChild(document.createElement('br'));
+                editor.appendChild(img);
+                editor.appendChild(document.createElement('br'));
+                syncEditorToTextarea(lang);
+            });
+        };
+        reader.readAsDataURL(file);
+    }
+
+    /** Handle file upload button */
+    function handleEditorUpload(input, lang) {
+        if (input.files && input.files[0]) {
+            insertImageFileIntoEditor(input.files[0], lang);
+            input.value = '';  // Reset so same file can be re-uploaded
+        }
+    }
+
+    /** Open image picker modal (shows ticket screenshots) */
+    function insertImageFromPicker(lang) {
+        var screenshots = window.__ticketScreenshots || [];
+        if (screenshots.length === 0) {
+            alert('No screenshots available for this ticket. Click "🔄 Refresh" in the Attachments section first.');
+            return;
+        }
+        // Build a simple picker overlay
+        var overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;';
+        overlay.onclick = function(e) { if (e.target === overlay) document.body.removeChild(overlay); };
+        var modal = document.createElement('div');
+        modal.style.cssText = 'background:white;border-radius:12px;padding:20px;max-width:700px;max-height:80vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+        modal.innerHTML = '<h3 style="margin:0 0 12px;font-size:1em;color:#1e293b;">Click an image to insert it into the draft</h3>';
+        var grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;';
+        screenshots.forEach(function(ss) {
+            var imgUrl = '/screenshots/{{ ticket.ticket_id }}/' + encodeURIComponent(ss.filename);
+            var item = document.createElement('div');
+            item.style.cssText = 'border:2px solid #e2e8f0;border-radius:8px;overflow:hidden;cursor:pointer;transition:border-color 0.2s;';
+            item.innerHTML = '<img src="' + imgUrl + '" style="width:100%;height:100px;object-fit:cover;">' +
+                '<div style="padding:4px 6px;font-size:0.7em;color:#64748b;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;">' + ss.filename + '</div>';
+            item.onmouseover = function() { item.style.borderColor = '#6366f1'; };
+            item.onmouseout = function() { item.style.borderColor = '#e2e8f0'; };
+            item.onclick = function() {
+                var editor = document.getElementById('richtext-' + lang);
+                if (editor) {
+                    var img = document.createElement('img');
+                    img.src = imgUrl;
+                    img.setAttribute('data-filename', ss.filename);
+                    img.title = ss.filename;
+                    img.onclick = function() { openScreenshotModal(imgUrl, ss.filename); };
+                    // Insert at end or cursor
+                    var sel = window.getSelection();
+                    if (sel.rangeCount && editor.contains(sel.anchorNode)) {
+                        var range = sel.getRangeAt(0);
+                        range.deleteContents();
+                        range.insertNode(img);
+                        range.setStartAfter(img);
+                    } else {
+                        editor.appendChild(document.createElement('br'));
+                        editor.appendChild(img);
+                    }
+                    editor.appendChild(document.createElement('br'));
+                    syncEditorToTextarea(lang);
+                    parseDraftResponse();
+                }
+                document.body.removeChild(overlay);
+            };
+            grid.appendChild(item);
+        });
+        modal.appendChild(grid);
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize rich editors
+        initRichEditor('fr');
+        initRichEditor('en');
+        parseDraftResponse();
+    });
+    </script>
+
+    <!-- COPY & OPEN IN FRESHDESK -->
+    {% if ticket.po_decision|lower in ('approved', 'declined') and (ticket.draft_response or ticket.draft_response_en) %}
+    <div class="card full">
+        <h3 style="font-size:0.95em;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            Copy & Open in Freshdesk
+        </h3>
+
+        {% if ticket.po_decision|lower == 'approved' %}
+        <p style="font-size:0.82em;color:var(--text-muted);margin-bottom:14px;">Select which sections to copy, then click the button. It copies to your clipboard and opens the Freshdesk ticket — click "Add Note" and paste (Ctrl+V).</p>
+        <div id="post-section-checklist" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+            <!-- dynamically populated by JS for approved tickets -->
+        </div>
+        {% else %}
+        <p style="font-size:0.82em;color:var(--text-muted);margin-bottom:14px;">Copy the decline response and open the Freshdesk ticket to paste it as a note.</p>
+        {% endif %}
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+            <button type="button" onclick="openInFreshdeskWithNote()" id="open-note-btn" class="btn" style="background:#5046e5;color:white;font-weight:600;display:flex;align-items:center;gap:8px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                Open in Freshdesk with Note
+            </button>
+            <button type="button" onclick="copyAndOpenFreshdesk()" class="btn" style="background:#16a34a;color:white;font-weight:500;display:flex;align-items:center;gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy & Open
+            </button>
+            <button type="button" onclick="copySelectedOnly()" class="btn btn-secondary" style="display:flex;align-items:center;gap:6px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                Copy Only
+            </button>
+        </div>
+        <div id="post-freshdesk-status" style="display:none;margin-top:10px;padding:10px 14px;border-radius:7px;font-size:0.85em;font-weight:500;"></div>
+    </div>
+    {% endif %}
+
+    <!-- AI ASSISTANT -->
+    {% if ticket.po_decision|lower in ('approved', 'declined') and (ticket.draft_response or ticket.draft_response_en) %}
+    <div class="card full">
+        <div class="card-header-with-badge">
+            <h3 class="card-heading" style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:1.1em;">🤖</span> AI Assistant
+            </h3>
+            <span class="card-subheading">Ask questions, request changes, or add context</span>
+        </div>
+
+        <div id="ai-chat-messages" class="chat-container">
+            <div class="chat-message-initial">
+                You can ask me to adjust the draft responses — for example:
+                "Make the client response shorter", "Add more detail about the regulatory requirement",
+                "Change the wording from X to Y", "What does the current template actually do?",
+                or "Translate this section differently".
+            </div>
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;font-size:0.75em;color:#475569;margin:6px 2px 4px 2px;flex-wrap:wrap;">
+            <span id="ai-pinned-count" style="display:none;padding:2px 8px;background:#eef2ff;color:#4338ca;border-radius:10px;font-weight:600;"></span>
+            <button type="button" id="btn-ai-attach-image"
+                onclick="document.getElementById('ai-chat-file-input').click();"
+                style="padding:4px 10px;font-size:0.85em;border:1px dashed #cbd5e1;background:#fff;color:#475569;border-radius:6px;cursor:pointer;">
+                📎 Attach image
+            </button>
+            <input type="file" id="ai-chat-file-input" accept="image/*" style="display:none;" multiple>
+            <span id="ai-attached-files" style="display:flex;gap:4px;flex-wrap:wrap;"></span>
+            <span style="margin-left:auto;font-size:0.7em;color:#94a3b8;">Paste images with Ctrl/Cmd+V</span>
+        </div>
+
+        <div class="chat-input-group">
+            <input type="text" id="ai-chat-input" placeholder="Ask the AI to adjust, explain, or reword..."
+                class="chat-input"
+                onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendAIChat();}">
+            <button type="button" onclick="sendAIChat()" class="btn btn-primary" id="ai-chat-send">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                Send
+            </button>
+        </div>
+    </div>
+
+    <script>
+    function addChatMessage(role, text) {
+        const container = document.getElementById('ai-chat-messages');
+        const div = document.createElement('div');
+        const isUser = role === 'user';
+        div.className = isUser ? 'chat-message-user' : 'chat-message-ai';
+        div.textContent = text;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // ── AI chat: attached/pasted image support ──
+    window.__aiAttachedImages = []; // [{name, data_b64, media_type}]
+
+    function renderAttachedImages() {
+        var box = document.getElementById('ai-attached-files');
+        if (!box) return;
+        box.innerHTML = '';
+        window.__aiAttachedImages.forEach(function(img, idx) {
+            var chip = document.createElement('span');
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 8px;background:#ecfdf5;color:#047857;border-radius:10px;font-weight:600;';
+            chip.innerHTML = '🖼️ ' + (img.name || ('image_' + idx)) +
+                ' <button type="button" style="background:none;border:none;color:#047857;cursor:pointer;font-weight:700;">×</button>';
+            chip.querySelector('button').addEventListener('click', function() {
+                window.__aiAttachedImages.splice(idx, 1);
+                renderAttachedImages();
+            });
+            box.appendChild(chip);
+        });
+    }
+
+    function fileToBase64(file) {
+        return new Promise(function(resolve, reject) {
+            var r = new FileReader();
+            r.onerror = reject;
+            r.onload = function() {
+                var result = r.result || '';
+                var commaIdx = result.indexOf(',');
+                resolve(commaIdx > -1 ? result.substring(commaIdx + 1) : result);
+            };
+            r.readAsDataURL(file);
+        });
+    }
+
+    (function wireChatImageSources() {
+        var fileInput = document.getElementById('ai-chat-file-input');
+        if (fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                var files = Array.from(e.target.files || []);
+                Promise.all(files.map(function(f) {
+                    return fileToBase64(f).then(function(b64) {
+                        return { name: f.name, data_b64: b64, media_type: f.type || 'image/png' };
+                    });
+                })).then(function(imgs) {
+                    window.__aiAttachedImages = window.__aiAttachedImages.concat(imgs);
+                    renderAttachedImages();
+                });
+                fileInput.value = '';
+            });
+        }
+
+        var chatInput = document.getElementById('ai-chat-input');
+        if (chatInput) {
+            chatInput.addEventListener('paste', function(e) {
+                var items = (e.clipboardData && e.clipboardData.items) || [];
+                var imageItems = [];
+                for (var i=0; i<items.length; i++) {
+                    if (items[i].kind === 'file' && items[i].type && items[i].type.indexOf('image/') === 0) {
+                        imageItems.push(items[i].getAsFile());
+                    }
+                }
+                if (imageItems.length === 0) return;
+                e.preventDefault();
+                Promise.all(imageItems.map(function(f) {
+                    return fileToBase64(f).then(function(b64) {
+                        return { name: f.name || 'pasted.png', data_b64: b64, media_type: f.type || 'image/png' };
+                    });
+                })).then(function(imgs) {
+                    window.__aiAttachedImages = window.__aiAttachedImages.concat(imgs);
+                    renderAttachedImages();
+                });
+            });
+        }
+    })();
+
+    function sendAIChat() {
+        const input = document.getElementById('ai-chat-input');
+        const message = input.value.trim();
+        if (!message && window.__aiAttachedImages.length === 0 && window.__pinnedScreenshots.size === 0) return;
+
+        const btn = document.getElementById('ai-chat-send');
+        btn.disabled = true;
+        btn.innerHTML = '<div style="width:14px;height:14px;border:2px solid white;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;"></div> Thinking...';
+
+        var displayMsg = message || '(sent images only)';
+        if (window.__aiAttachedImages.length > 0) displayMsg += '  [+' + window.__aiAttachedImages.length + ' attached]';
+        if (window.__pinnedScreenshots.size > 0) displayMsg += '  [+' + window.__pinnedScreenshots.size + ' pinned]';
+        addChatMessage('user', displayMsg);
+        input.value = '';
+
+        // Find the right textarea (approved or declined)
+        const approvedTa = document.getElementById(currentLang === 'fr' ? 'textarea-fr' : 'textarea-en');
+        const declineTa = document.getElementById(currentLang === 'fr' ? 'decline-textarea-fr' : 'decline-textarea-en');
+        const textarea = approvedTa || declineTa;
+        const currentDraft = textarea ? textarea.value : '';
+
+        var pinned = Array.from(window.__pinnedScreenshots);
+        var attached = window.__aiAttachedImages.slice();
+
+        fetch('{{ url_for("ai_chat", ticket_id=ticket.ticket_id) }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: message,
+                current_draft: currentDraft,
+                lang: currentLang,
+                pinned_screenshots: pinned,
+                attached_images: attached,
+            })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.reply) {
+                addChatMessage('ai', data.reply);
+            }
+            if (data.updated_draft) {
+                textarea.value = data.updated_draft;
+                // Also sync the OTHER language tab so both FR and EN stay in sync
+                if (data.updated_draft_fr) {
+                    const frTa = document.getElementById('textarea-fr') || document.getElementById('decline-textarea-fr');
+                    if (frTa) frTa.value = data.updated_draft_fr;
+                }
+                if (data.updated_draft_en) {
+                    const enTa = document.getElementById('textarea-en') || document.getElementById('decline-textarea-en');
+                    if (enTa) enTa.value = data.updated_draft_en;
+                }
+                parseDraftResponse();
+                addChatMessage('ai', '(Draft updated — both FR and EN versions synced)');
+            }
+            if (data.error) {
+                addChatMessage('ai', 'Error: ' + data.error);
+            }
+        })
+        .catch(err => {
+            addChatMessage('ai', 'Request failed: ' + err.message);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Send';
+            // Clear attached/pasted images after send — pinned screenshots stay pinned
+            window.__aiAttachedImages = [];
+            renderAttachedImages();
+        });
+    }
+
+    // Build the section checklist whenever sections are parsed
+    function buildPostChecklist() {
+        const checklist = document.getElementById('post-section-checklist');
+        if (!checklist) return;
+
+        const sectionLabels = [
+            { id: 0, label: 'Client Response', icon: '💬', defaultChecked: true },
+            { id: 1, label: 'Internal Note (BSO LUX)', icon: '📝', defaultChecked: false },
+            { id: 2, label: 'Backlog Ticket', icon: '📋', defaultChecked: false }
+        ];
+
+        checklist.innerHTML = '';
+        sectionLabels.forEach(s => {
+            const sectionEl = document.getElementById('section-content-' + s.id);
+            if (!sectionEl) return;
+            const div = document.createElement('label');
+            div.style.cssText = 'display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.88em;padding:8px 12px;border:1px solid var(--border);border-radius:7px;background:white;transition:all 0.15s;';
+            div.innerHTML = `<input type="checkbox" class="post-section-cb" data-section-idx="${s.id}" ${s.defaultChecked ? 'checked' : ''} style="accent-color:var(--primary);width:16px;height:16px;cursor:pointer;">
+                <span>${s.icon}</span>
+                <span style="font-weight:500;">${s.label}</span>`;
+            div.addEventListener('mouseenter', () => { div.style.borderColor = 'var(--primary)'; });
+            div.addEventListener('mouseleave', () => { div.style.borderColor = 'var(--border)'; });
+            checklist.appendChild(div);
+        });
+    }
+
+    const _origParseDraftResponse = parseDraftResponse;
+    parseDraftResponse = function() {
+        _origParseDraftResponse();
+        setTimeout(buildPostChecklist, 50);
+    };
+
+    function getSelectedSectionText() {
+        // For declined tickets: grab the full decline textarea text
+        const declineTa = document.getElementById('decline-textarea-fr') || document.getElementById('decline-textarea-en');
+        if (declineTa) {
+            return declineTa.value.trim() || null;
+        }
+
+        // For approved tickets: use section checkboxes
+        const checkboxes = document.querySelectorAll('.post-section-cb:checked');
+        if (checkboxes.length === 0) return null;
+
+        const parts = [];
+        checkboxes.forEach(cb => {
+            const idx = cb.dataset.sectionIdx;
+            const el = document.getElementById('section-content-' + idx);
+            if (el) {
+                const card = el.closest('.section-card');
+                const headerEl = card ? card.querySelector('.section-title') : null;
+                const header = headerEl ? headerEl.textContent.trim() : '';
+                if (header) parts.push('--- ' + header.replace(/^[^\w]+ /, '') + ' ---');
+                parts.push(el.innerText.trim());
+                parts.push('');
+            }
+        });
+        return parts.join('\n').trim();
+    }
+
+    function showPostStatus(msg, isError) {
+        const el = document.getElementById('post-freshdesk-status');
+        el.textContent = msg;
+        el.style.display = 'block';
+        el.style.background = isError ? 'var(--danger-bg)' : 'var(--success-bg)';
+        el.style.color = isError ? '#991b1b' : '#065f46';
+        if (!isError) setTimeout(() => { el.style.display = 'none'; }, 4000);
+    }
+
+    function openInFreshdeskWithNote() {
+        const text = getSelectedSectionText();
+        if (!text) { alert('Please select at least one section.'); return; }
+
+        const btn = document.getElementById('open-note-btn');
+        const orig = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<div style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></div> Opening Chrome...';
+
+        fetch('/ticket/{{ ticket.ticket_id }}/open-note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: text })
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                showPostStatus(data.message, false);
+            } else {
+                showPostStatus('Error: ' + (data.message || 'Unknown'), true);
+            }
+        })
+        .catch(err => {
+            showPostStatus('Error: ' + err.message, true);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = orig;
+        });
+    }
+
+    function copyAndOpenFreshdesk() {
+        const text = getSelectedSectionText();
+        if (!text) { alert('Please select at least one section.'); return; }
+
+        navigator.clipboard.writeText(text).then(() => {
+            showPostStatus('Copied to clipboard! Opening Freshdesk...', false);
+            setTimeout(() => {
+                window.open('{{ ticket.ticket_url or ("https://silverfin.freshdesk.com/a/tickets/" ~ ticket.ticket_id) }}', '_blank');
+            }, 400);
+        }).catch(err => {
+            showPostStatus('Failed to copy: ' + err.message, true);
+        });
+    }
+
+    function copySelectedOnly() {
+        const text = getSelectedSectionText();
+        if (!text) { alert('Please select at least one section.'); return; }
+        navigator.clipboard.writeText(text).then(() => {
+            showPostStatus('Copied to clipboard!', false);
+        }).catch(err => {
+            showPostStatus('Failed to copy: ' + err.message, true);
+        });
+    }
+    </script>
+    {% endif %}
+
+    <!-- FULL TICKET THREAD -->
+    <div class="card full">
+        <h3 class="card-heading">Full Ticket Thread</h3>
+        <div class="thread-box">{{ ticket.compiled_thread or 'Run analysis to see full ticket thread.' }}</div>
+    </div>
+</div>
+
+<style>
+/* ═══════════════════════════════════════════════════════════════════
+   REFINED TICKET PAGE STYLING
+   ═══════════════════════════════════════════════════════════════════ */
+
+.ticket-container {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.ticket-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.ticket-header-left {
+    flex: 1;
+}
+
+.breadcrumb-link {
+    display: inline-block;
+    font-size: 0.9em;
+    color: var(--text-muted);
+    text-decoration: none;
+    margin-bottom: 8px;
+    transition: color 0.2s;
+}
+
+.breadcrumb-link:hover {
+    color: var(--text-primary);
+}
+
+.ticket-title {
+    font-size: 2.2em;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+    letter-spacing: -0.5px;
+    line-height: 1.2;
+}
+
+.ticket-header-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+}
+
+.dropdown-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+    min-width: 240px;
+    overflow: hidden;
+    display: none;
+}
+
+.dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-size: 0.92em;
+    background: white;
+    border: none;
+    width: 100%;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+    background-color: #f8fafc;
+}
+
+.dropdown-item form {
+    width: 100%;
+}
+
+.flag {
+    font-size: 1.2em;
+    display: inline-block;
+}
+
+.dropdown-divider {
+    border-top: 1px solid var(--border);
+    margin: 6px 0;
+}
+
+.dropdown-note {
+    padding: 10px 16px;
+    font-size: 0.78em;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.dropdown-warning {
+    padding: 12px 16px;
+    font-size: 0.85em;
+    color: #dc2626;
+    font-weight: 600;
+}
+
+/* AI Progress Overlay */
+.ai-progress-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(15, 23, 42, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 9999;
+    align-items: center;
+    justify-content: center;
+}
+
+.ai-progress-modal {
+    background: white;
+    padding: 36px 44px;
+    border-radius: 12px;
+    text-align: left;
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.15);
+    min-width: 420px;
+    max-width: 480px;
+}
+
+.ai-progress-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.ai-pulse {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3em;
+    flex-shrink: 0;
+}
+
+.ai-progress-title {
+    font-weight: 700;
+    font-size: 1.08em;
+    color: var(--text-primary);
+}
+
+.ai-progress-subtitle {
+    font-size: 0.82em;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.ai-progress-bar {
+    background: #e2e8f0;
+    height: 4px;
+    border-radius: 2px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.ai-progress-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.6s ease;
+}
+
+.ai-steps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.ai-progress-time {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #f1f5f9;
+    font-size: 0.78em;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Card Styling */
+.card {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.card.full {
+    grid-column: 1 / -1;
+}
+
+.card-heading {
+    font-size: 1.2em;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0 0 16px 0;
+}
+
+.card-header-with-badge {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    gap: 12px;
+}
+
+.card-subheading {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.card-description {
+    font-size: 0.82em;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+    line-height: 1.5;
+}
+
+/* Metadata Grid */
+.meta-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 0;
+}
+
+@media (max-width: 768px) {
+    .meta-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.meta-item {
+    padding: 12px;
+    background: #f8fafc;
+    border-radius: 6px;
+    border: 1px solid #f1f5f9;
+}
+
+.meta-label {
+    font-size: 0.72em;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.meta-value {
+    font-size: 0.95em;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.meta-sub {
+    color: var(--text-muted);
+    font-size: 0.85em;
+}
+
+.section-spacer {
+    margin-top: 16px;
+}
+
+.section-text {
+    margin: 8px 0 0 0;
+    color: var(--text-primary);
+    line-height: 1.6;
+    font-size: 0.95em;
+}
+
+/* Confidence Bar */
+.confidence-bar {
+    background: #e2e8f0;
+    height: 6px;
+    border-radius: 3px;
+    margin-top: 6px;
+    overflow: hidden;
+}
+
+.confidence-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+/* RICE Section */
+.rice-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 1024px) {
+    .rice-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 640px) {
+    .rice-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.rice-input-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 14px;
+}
+
+.rice-label {
+    font-size: 0.72em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.rice-label-colored {
+    font-size: 0.72em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.rice-select {
+    font-size: 0.95em;
+    font-weight: 500;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: white;
+    cursor: pointer;
+    margin-bottom: 4px;
+}
+
+.rice-helper {
+    font-size: 0.72em;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+.rice-score-badge {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.rice-value {
+    font-size: 1.4em;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 6px;
+}
+
+.rice-save-wrapper {
+    margin-top: 20px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* PO Decision */
+.decision-badge {
+    font-size: 0.85em;
+    font-weight: 700;
+    padding: 6px 16px;
+    border-radius: 6px;
+    letter-spacing: 0.5px;
+}
+
+.decision-approved {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.decision-declined {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.decision-pending {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.decision-summary {
+    padding: 16px;
+    border-radius: 8px;
+    border: 2px solid;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+}
+
+.decision-icon {
+    font-size: 1.8em;
+    line-height: 1;
+    flex-shrink: 0;
+}
+
+.decision-content {
+    flex: 1;
+}
+
+.decision-title {
+    font-weight: 700;
+    font-size: 1em;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.decision-reason {
+    color: var(--text-primary);
+    font-size: 0.92em;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.decision-date {
+    color: var(--text-muted);
+    font-size: 0.8em;
+    margin-top: 6px;
+}
+
+.change-decision-details {
+    margin-top: 12px;
+}
+
+.change-decision-details summary {
+    cursor: pointer;
+    font-size: 0.82em;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 8px;
+    border-radius: 4px;
+    user-select: none;
+    transition: background-color 0.2s;
+}
+
+.change-decision-details summary:hover {
+    background-color: #f8fafc;
+}
+
+.change-decision-form {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.decision-guidance {
+    background: #fffbeb;
+    border: 2px solid #fcd34d;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+}
+
+.guidance-title {
+    margin: 0 0 6px;
+    font-size: 0.92em;
+    font-weight: 600;
+    color: #92400e;
+}
+
+.guidance-text {
+    margin: 0;
+    font-size: 0.82em;
+    color: #5a4e47;
+    line-height: 1.5;
+}
+
+.po-decision-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* Draft Response Section */
+.language-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.language-toggle-label {
+    font-size: 0.78em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.language-buttons {
+    display: flex;
+    border: 2px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.language-btn {
+    padding: 6px 16px;
+    font-size: 0.85em;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    background: white;
+    color: var(--text-muted);
+    transition: all 0.2s;
+}
+
+.language-btn.active {
+    background: #2563eb;
+    color: white;
+}
+
+.draft-prompt-card {
+    border-radius: 8px;
+    padding: 24px;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.draft-prompt-card.approved {
+    background: #f0fdf4;
+    border: 2px solid #86efac;
+}
+
+.draft-prompt-card.declined {
+    background: #fef2f2;
+    border: 2px solid #fca5a5;
+}
+
+.draft-prompt-icon {
+    font-size: 1.5em;
+    margin-bottom: 8px;
+}
+
+.draft-prompt-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 8px;
+}
+
+.draft-prompt-description {
+    font-size: 0.88em;
+    color: var(--text-muted);
+    margin: 0 0 16px;
+    line-height: 1.5;
+}
+
+.draft-form {
+    display: inline-block;
+}
+
+.draft-pending-card {
+    background: #f8fafc;
+    border: 2px dashed #cbd5e1;
+    border-radius: 8px;
+    padding: 20px;
+    text-align: center;
+}
+
+.draft-regenerate {
+    margin-bottom: 16px;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.draft-textarea {
+    width: 100%;
+    min-height: 300px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.9em;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    resize: vertical;
+    margin-bottom: 16px;
+}
+
+.draft-textarea.declined {
+    border-color: #fca5a5;
+    background: #fef2f2;
+}
+
+.draft-editor {
+    margin-top: 16px;
+}
+
+.draft-controls {
+    display: flex;
+    gap: 12px;
+    margin-top: 20px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+}
+
+.draft-controls > div {
+    display: flex;
+    flex-direction: column;
+}
+
+.draft-controls > div:last-child {
+    flex: 1;
+    min-width: 200px;
+}
+
+/* Parsed Sections */
+.section-card {
+    margin-bottom: 16px;
+    border: 2px solid;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.section-header {
+    padding: 12px 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    border-bottom: 2px solid;
+    font-size: 0.9em;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-icon {
+    font-size: 1.1em;
+}
+
+.section-content {
+    padding: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.95em;
+    line-height: 1.5;
+    color: var(--text-primary);
+}
+
+.copy-btn {
+    background: white;
+    border: 1px solid;
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 0.82em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-primary);
+    transition: all 0.2s;
+}
+
+.copy-btn:hover {
+    background: #f8fafc;
+}
+
+/* Copy & Open Card */
+.copy-open-card {
+    text-align: center;
+    padding: 24px;
+}
+
+.copy-open-note {
+    margin-top: 12px;
+    font-size: 0.82em;
+    color: var(--text-muted);
+}
+
+/* Chat Interface */
+.chat-container {
+    max-height: 400px;
+    overflow-y: auto;
+    margin-bottom: 12px;
+    padding: 8px 0;
+    background: #fafbfc;
+    border-radius: 6px;
+    padding: 12px;
+}
+
+.chat-message-initial {
+    background: #f0f4ff;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.88em;
+    color: var(--text-primary);
+    line-height: 1.5;
+}
+
+.chat-message-user {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9em;
+    line-height: 1.5;
+    max-width: 85%;
+    margin-left: auto;
+    background: #2563eb;
+    color: white;
+    white-space: pre-wrap;
+    word-break: break-word;
+    text-align: right;
+}
+
+.chat-message-ai {
+    margin-top: 8px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-size: 0.9em;
+    line-height: 1.5;
+    max-width: 85%;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.chat-input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.chat-input {
+    flex: 1;
+    padding: 10px 14px;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 0.92em;
+    background: white;
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Thread Box */
+.thread-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 16px;
+    font-size: 0.9em;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Form Elements */
+.form-label {
+    font-size: 0.78em;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+    margin-bottom: 6px;
+}
+
+.form-input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9em;
+    background: white;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.form-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9em;
+    resize: vertical;
+    background: white;
+    font-family: inherit;
+    transition: border-color 0.2s;
+}
+
+.form-textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Rich text editor */
+.rich-editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: 6px 6px 0 0;
+}
+.toolbar-btn {
+    padding: 4px 10px;
+    font-size: 0.78em;
+    border: 1px solid #cbd5e1;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 500;
+    color: #334155;
+}
+.toolbar-btn:hover { background: #f1f5f9; border-color: #6366f1; color: #4f46e5; }
+.rich-editor {
+    width: 100%;
+    min-height: 250px;
+    max-height: 600px;
+    overflow-y: auto;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 0 0 6px 6px;
+    font-size: 0.9em;
+    background: white;
+    font-family: inherit;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.rich-editor:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+.rich-editor img {
+    max-width: 100%;
+    max-height: 400px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    margin: 8px 0;
+    display: block;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.rich-editor img:hover {
+    border-color: #6366f1;
+    box-shadow: 0 2px 12px rgba(99,102,241,0.2);
+}
+.rich-editor .img-placeholder {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 4px;
+    font-size: 0.8em;
+    color: #4f46e5;
+    font-weight: 500;
+    cursor: default;
+}
+.rich-editor .img-remove {
+    cursor: pointer;
+    color: #ef4444;
+    font-weight: 700;
+    margin-left: 4px;
+    font-size: 1.1em;
+}
+
+/* Button Styles */
+.btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.9em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+.btn-primary-action {
+    background: #7c3aed;
+    color: white;
+    padding: 10px 18px;
+}
+
+.btn-primary-action:hover {
+    background: #6d28d9;
+    box-shadow: 0 2px 8px rgba(124, 58, 237, 0.3);
+}
+
+.btn-lg {
+    padding: 12px 28px;
+    font-size: 1em;
+}
+
+.button-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.button-group-large {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* Toast Notification */
+.toast-notification {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #16a34a;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 0.92em;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateX(-50%) translateY(100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .ticket-header {
+        flex-direction: column;
+    }
+
+    .ticket-header-actions {
+        justify-content: flex-start;
+        width: 100%;
+    }
+
+    .ticket-title {
+        font-size: 1.8em;
+    }
+
+    .rice-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .draft-controls {
+        flex-direction: column;
+    }
+
+    .draft-controls > div {
+        width: 100%;
+    }
+}
+</style>
+
+{% include 'jira_modal.html' %}
+
+<script>
+// Jira modal opener — via data attributes to avoid quote escaping issues
+document.querySelectorAll('.jira-open-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var tid = parseInt(this.dataset.ticketId);
+        var opts = {
+            subject: this.dataset.subject || '',
+            classification: this.dataset.classification || '',
+            risk_level: this.dataset.riskLevel || ''
+        };
+        openJiraModal(tid, opts);
+        // Close the dropdown if open
+        var jd = document.getElementById('jira-dropdown');
+        if (jd) jd.style.display = 'none';
+    });
+});
+</script>
+
+{% endblock %}

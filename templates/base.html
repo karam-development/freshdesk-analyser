@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Freshdesk AI Analyzer{% endblock %}</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #f8f9fb;
+            --card: #ffffff;
+            --primary: #5046e5;
+            --primary-hover: #4338ca;
+            --primary-light: #818cf8;
+            --primary-bg: #eef2ff;
+            --text: #111827;
+            --text-secondary: #4b5563;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --border-light: #f3f4f6;
+            --success: #059669;
+            --success-bg: #ecfdf5;
+            --warning: #d97706;
+            --warning-bg: #fffbeb;
+            --danger: #dc2626;
+            --danger-bg: #fef2f2;
+            --info: #2563eb;
+            --info-bg: #eff6ff;
+            --radius: 8px;
+            --radius-lg: 12px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+            --shadow-lg: 0 4px 12px rgba(0,0,0,0.06);
+        }
+        * { margin:0; padding:0; box-sizing:border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── TOP NAV ─── */
+        nav {
+            background: var(--card);
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+            height: 56px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        nav .logo {
+            font-weight: 700;
+            font-size: 0.95em;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+        nav .logo-icon {
+            background: var(--primary);
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 7px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7em;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        nav .nav-links {
+            margin-left: 40px;
+            display: flex;
+            gap: 2px;
+            height: 100%;
+            align-items: stretch;
+        }
+        nav .nav-links a {
+            text-decoration: none;
+            color: var(--text-muted);
+            padding: 0 14px;
+            font-size: 0.85em;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            position: relative;
+            transition: color 0.15s;
+        }
+        nav .nav-links a:hover { color: var(--text); }
+        nav .nav-links a.active {
+            color: var(--primary);
+            font-weight: 600;
+        }
+        nav .nav-links a.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 14px;
+            right: 14px;
+            height: 2px;
+            background: var(--primary);
+            border-radius: 2px 2px 0 0;
+        }
+
+        /* ─── LAYOUT ─── */
+        .page { max-width: 1400px; margin: 0 auto; padding: 28px 32px; }
+        .page.page-wide { max-width: 100%; padding: 24px 28px; }
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .page-header h1 {
+            font-size: 1.35em;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        /* ─── CARDS ─── */
+        .card {
+            background: var(--card);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border);
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        /* ─── STATS ─── */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .stat {
+            background: var(--card);
+            border-radius: var(--radius);
+            padding: 16px 18px;
+            border: 1px solid var(--border);
+        }
+        .stat .label {
+            font-size: 0.72em;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .stat .value {
+            font-size: 1.6em;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .stat.primary .value { color: var(--primary); }
+        .stat.warning .value { color: var(--warning); }
+        .stat.success .value { color: var(--success); }
+        .stat.danger .value { color: var(--danger); }
+        .stat.info .value { color: var(--info); }
+
+        /* ─── BUTTONS ─── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 7px;
+            font-size: 0.85em;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: var(--card); color: var(--text-secondary); border: 1px solid var(--border); }
+        .btn-secondary:hover { background: #f9fafb; border-color: #d1d5db; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-success:hover { background: #047857; }
+        .btn-danger { background: var(--danger); color: white; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-sm { padding: 5px 11px; font-size: 0.8em; }
+
+        /* ─── TABLE ─── */
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.88em; }
+        th {
+            background: #f9fafb;
+            padding: 10px 14px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+            position: sticky;
+            top: 0;
+            font-size: 0.82em;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        th a { color: inherit; text-decoration: none; }
+        th a:hover { color: var(--primary); }
+        td { padding: 10px 14px; border-bottom: 1px solid var(--border-light); vertical-align: middle; }
+        tr:hover td { background: #fafbfc; }
+
+        /* ─── BADGES ─── */
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: 600; }
+        .badge-open { background: var(--info-bg); color: #1e40af; }
+        .badge-pending { background: var(--warning-bg); color: #92400e; }
+        .badge-resolved { background: var(--success-bg); color: #065f46; }
+        .badge-low { background: #f0fdf4; color: #166534; }
+        .badge-medium { background: var(--warning-bg); color: #92400e; }
+        .badge-high { background: #fff1f2; color: #be123c; }
+        .badge-critical { background: #fee2e2; color: #991b1b; }
+        .badge-bug { background: #fee2e2; color: #991b1b; }
+        .badge-feature { background: #ede9fe; color: #5b21b6; }
+        .badge-howto { background: #dbeafe; color: #1e40af; }
+        .badge-review-pending { background: var(--warning-bg); color: #92400e; }
+        .badge-review-reviewed { background: var(--info-bg); color: #1d4ed8; }
+        .badge-review-sent { background: var(--success-bg); color: #065f46; }
+
+        /* ─── FORMS ─── */
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 0.88em; }
+        .form-group .hint { font-size: 0.78em; color: var(--text-muted); margin-top: 4px; }
+        input[type="text"], input[type="password"], input[type="url"], input[type="number"],
+        input[type="date"], textarea, select {
+            width: 100%; padding: 9px 12px; border: 1px solid var(--border); border-radius: 7px;
+            font-size: 0.9em; font-family: inherit; background: var(--card); color: var(--text);
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(80,70,229,0.08);
+        }
+        textarea { resize: vertical; min-height: 100px; font-family: 'JetBrains Mono', monospace; font-size: 0.85em; }
+
+        /* ─── FLASH ─── */
+        .flash {
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            font-size: 0.88em;
+            font-weight: 500;
+            border-left: 3px solid;
+        }
+        .flash-success { background: var(--success-bg); color: #065f46; border-left-color: var(--success); }
+        .flash-error, .flash-danger { background: var(--danger-bg); color: #991b1b; border-left-color: var(--danger); }
+        .flash-warning { background: var(--warning-bg); color: #92400e; border-left-color: var(--warning); }
+        .flash-info { background: var(--info-bg); color: #1e40af; border-left-color: var(--info); }
+
+        /* ─── JOB BAR ─── */
+        .job-bar {
+            background: var(--primary-bg);
+            border: 1px solid #c7d2fe;
+            border-radius: var(--radius);
+            padding: 14px 18px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .job-bar .spinner { width: 18px; height: 18px; border: 2.5px solid #c7d2fe; border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+
+        /* ─── FILTERS ─── */
+        .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: end; }
+        .filters select, .filters input { padding: 8px 12px; font-size: 0.85em; min-width: 140px; }
+
+        /* ─── DETAIL PAGE ─── */
+        .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .detail-grid .full { grid-column: 1 / -1; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+        .meta-item .meta-label { font-size: 0.72em; color: var(--text-muted); text-transform: uppercase; font-weight: 600; letter-spacing: 0.04em; }
+        .meta-item .meta-value { font-size: 0.92em; margin-top: 2px; word-break: break-word; }
+        .thread-box { background: #f9fafb; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; max-height: 500px; overflow-y: auto; white-space: pre-wrap; font-family: 'JetBrains Mono', monospace; font-size: 0.8em; line-height: 1.55; }
+        .draft-box { background: var(--success-bg); border: 1px solid #a7f3d0; border-radius: var(--radius); padding: 16px; white-space: pre-wrap; line-height: 1.6; }
+
+        /* ─── SETTINGS ─── */
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+        .settings-section h3 { font-size: 1em; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        .test-btn { margin-top: 8px; }
+        .test-result { margin-top: 8px; font-size: 0.85em; padding: 8px 12px; border-radius: 6px; display: none; }
+
+        /* ─── TRUNCATE ─── */
+        .truncate { max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .truncate-md { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* ─── RESPONSIVE ─── */
+        @media (max-width: 900px) {
+            .settings-grid, .detail-grid { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .page { padding: 20px; }
+            nav { padding: 0 16px; }
+        }
+        @media (max-width: 600px) {
+            .stats { grid-template-columns: 1fr 1fr; }
+            .page { padding: 16px; }
+            nav .nav-links { gap: 0; }
+            nav .nav-links a { padding: 0 10px; font-size: 0.8em; }
+        }
+
+        /* ─── SCROLLBAR ─── */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <nav>
+        <a href="{{ url_for('dashboard') }}" class="logo">
+            <div class="logo-icon">FD</div>
+            Freshdesk AI
+        </a>
+        <div class="nav-links">
+            <a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="{{ url_for('bso_board') }}" class="{% if request.endpoint == 'bso_board' %}active{% endif %}">BSO Board</a>
+            <a href="{{ url_for('reporting') }}" class="{% if request.endpoint == 'reporting' %}active{% endif %}">Reporting</a>
+            <a href="{{ url_for('settings') }}" class="{% if request.endpoint == 'settings' %}active{% endif %}">Settings</a>
+            <a href="{{ url_for('agent_dashboard') }}" class="{% if request.endpoint == 'agent_dashboard' %}active{% endif %}">Agents</a>
+        </div>
+    </nav>
+
+    <div class="page {% block page_class %}{% endblock %}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+        <div class="flash flash-{{ cat }}">{{ msg }}</div>
+        {% endfor %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

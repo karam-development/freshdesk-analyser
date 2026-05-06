@@ -1,0 +1,17 @@
+{
+  "name": "freshdesk-analyzer",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "docx": "^8.5.0",
+    "pptxgenjs": "^4.0.1"
+  },
+  "description": "",
+  "main": "generate_analysis.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

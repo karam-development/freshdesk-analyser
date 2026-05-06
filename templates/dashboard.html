@@ -1,0 +1,1284 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - Freshdesk AI Analyzer{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+
+{% block head %}
+<style>
+    /* ══════════════════════════════════════════════════════════════════════════
+       DASHBOARD STYLING — Polished Professional Design
+       ══════════════════════════════════════════════════════════════════════════ */
+
+    /* ─ Job Status Bar ─ */
+    #job-bar {
+        display: none;
+        align-items: center;
+        gap: 16px;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 8px;
+        color: white;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        animation: slideDown 0.3s ease-out;
+    }
+
+    #job-bar .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes slideDown {
+        from { transform: translateY(-100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    /* ─ Page Header ─ */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
+        gap: 20px;
+    }
+
+    .page-header h1 {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text);
+        margin: 0;
+        letter-spacing: -0.5px;
+    }
+
+    .page-header > div {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .ticket-count {
+        font-size: 13px;
+        color: var(--text-muted);
+        font-weight: 500;
+        padding: 0 8px;
+    }
+
+    /* ─ Stats Grid ─ */
+    .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 12px;
+        margin-bottom: 24px;
+    }
+
+    .stat {
+        padding: 16px;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        transition: all 0.2s ease;
+    }
+
+    .stat:hover {
+        border-color: var(--primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .stat.primary {
+        border-left: 3px solid var(--primary);
+    }
+
+    .stat.warning {
+        border-left: 3px solid #f59e0b;
+    }
+
+    .stat.info {
+        border-left: 3px solid #3b82f6;
+    }
+
+    .stat.success {
+        border-left: 3px solid #10b981;
+    }
+
+    .stat.danger {
+        border-left: 3px solid #ef4444;
+    }
+
+    .stat .label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .stat .value {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text);
+    }
+
+    /* Gradient stat variants */
+    .stat[style*="background:linear-gradient"] {
+        border: none;
+        color: white;
+    }
+
+    .stat[style*="background:linear-gradient"] .label {
+        color: rgba(255, 255, 255, 0.85);
+    }
+
+    .stat[style*="background:linear-gradient"] .value {
+        color: white;
+    }
+
+    /* ─ Filter Card ─ */
+    .filter-card {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+    }
+
+    .filters-compact {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+
+    .filters-compact > div {
+        flex: 0 1 auto;
+        min-width: 100px;
+    }
+
+    .filters-compact label {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+        display: block;
+        margin-bottom: 4px;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .filters-compact select,
+    .filters-compact input {
+        width: 100%;
+        padding: 6px 8px;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: white;
+        color: var(--text);
+        transition: all 0.15s ease;
+    }
+
+    .filters-compact select:hover,
+    .filters-compact input:hover {
+        border-color: var(--primary);
+    }
+
+    .filters-compact select:focus,
+    .filters-compact input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: 6px;
+        align-self: flex-end;
+        flex-shrink: 0;
+    }
+
+    /* ─ Table Container ─ */
+    .table-card {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* ─ Notion-style Table ─ */
+    .ntable {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        table-layout: fixed;
+    }
+
+    .ntable th {
+        background: #f8fafc;
+        padding: 10px 12px;
+        text-align: left;
+        font-weight: 700;
+        color: var(--text-muted);
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+        position: sticky;
+        top: 0;
+        user-select: none;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        z-index: 2;
+    }
+
+    .ntable th .th-content {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .ntable th .th-label {
+        cursor: grab;
+        transition: color 0.15s;
+    }
+
+    .ntable th .th-label:active {
+        cursor: grabbing;
+    }
+
+    .ntable th .sort-btn {
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 4px;
+        color: #94a3b8;
+        font-size: 11px;
+        flex-shrink: 0;
+        border: none;
+        background: none;
+        padding: 0;
+        transition: all 0.15s;
+    }
+
+    .ntable th .sort-btn:hover {
+        background: rgba(79, 70, 229, 0.1);
+        color: var(--primary);
+    }
+
+    .ntable th .sort-btn.active {
+        color: var(--primary);
+        font-weight: 700;
+    }
+
+    .ntable th.dragging {
+        opacity: 0.4;
+        background: #dbeafe;
+    }
+
+    .ntable th.drag-over {
+        border-left: 3px solid var(--primary);
+        background: rgba(79, 70, 229, 0.02);
+    }
+
+    .ntable td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f1f5f9;
+        vertical-align: middle;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text);
+    }
+
+    .ntable tr:hover td {
+        background: #f8fafc;
+    }
+
+    .ntable tr {
+        cursor: pointer;
+        transition: background 0.15s;
+    }
+
+    .ntable .badge {
+        display: inline-block;
+        padding: 3px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+
+    .ntable .hidden-col {
+        display: none;
+    }
+
+    /* Badge Variants */
+    .badge-open {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .badge-resolved {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .badge-bug {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .badge-feature {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .badge-howto {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .badge-low {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .badge-medium {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .badge-high {
+        background: #fed7aa;
+        color: #9a3412;
+    }
+
+    .badge-critical {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .badge-review-pending {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .badge-review-reviewed {
+        background: #e0e7ff;
+        color: #3730a3;
+    }
+
+    .badge-review-sent {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    /* ─ Sort Dropdown ─ */
+    .sort-dropdown {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 4px;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        padding: 6px 0;
+        z-index: 300;
+        min-width: 180px;
+    }
+
+    .sort-dropdown.open {
+        display: block;
+        animation: dropdownSlide 0.2s ease-out;
+    }
+
+    @keyframes dropdownSlide {
+        from { opacity: 0; transform: translateY(-4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .sort-dropdown button {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 8px 14px;
+        border: none;
+        background: none;
+        font-size: 13px;
+        color: var(--text);
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.15s;
+    }
+
+    .sort-dropdown button:hover {
+        background: #f0f4ff;
+        color: var(--primary);
+    }
+
+    .sort-dropdown button.active-sort {
+        color: var(--primary);
+        font-weight: 700;
+    }
+
+    .sort-dropdown .sort-icon {
+        width: 16px;
+        text-align: center;
+        font-size: 11px;
+        flex-shrink: 0;
+    }
+
+    /* ─ Column Widths ─ */
+    .col-id { width: 4%; }
+    .col-subject { width: 18%; }
+    .col-status { width: 6%; }
+    .col-requester { width: 8%; }
+    .col-client { width: 7%; }
+    .col-type { width: 5%; }
+    .col-risk { width: 5%; }
+    .col-rice { width: 4%; }
+    .col-po { width: 4%; }
+    .col-inbox { width: 5%; }
+    .col-summary { width: 18%; }
+    .col-review { width: 5%; }
+    .col-jira { width: 5%; }
+    .col-created { width: 6%; }
+    .col-updated { width: 6%; }
+
+    .badge-jira {
+        background: #e0e7ff;
+        color: #3730a3;
+        font-size: 10px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 3px;
+        text-decoration: none;
+        display: inline-block;
+    }
+    .badge-jira:hover {
+        background: #c7d2fe;
+        text-decoration: none;
+    }
+
+    /* ─ Column Toggle Menu ─ */
+    .col-toggle-wrap {
+        position: relative;
+        display: inline-block;
+    }
+
+    .col-toggle-btn {
+        cursor: pointer;
+    }
+
+    .col-toggle-menu {
+        display: none;
+        position: absolute;
+        right: 0;
+        top: 100%;
+        margin-top: 6px;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+        padding: 12px 14px;
+        z-index: 200;
+        min-width: 200px;
+        max-height: 400px;
+        overflow-y: auto;
+        animation: dropdownSlide 0.2s ease-out;
+    }
+
+    .col-toggle-menu.open {
+        display: block;
+    }
+
+    .col-toggle-menu > div:first-child {
+        font-weight: 700;
+        font-size: 10px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+        margin-bottom: 10px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .col-toggle-menu label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 0;
+        font-size: 13px;
+        cursor: pointer;
+        font-weight: 400;
+        transition: color 0.15s;
+    }
+
+    .col-toggle-menu label:hover {
+        color: var(--primary);
+    }
+
+    .col-toggle-menu input[type="checkbox"] {
+        cursor: pointer;
+        width: 16px;
+        height: 16px;
+    }
+
+    /* ─ Bulk Action Bar ─ */
+    #bulk-action-bar {
+        display: none;
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px 20px;
+        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+        min-width: 420px;
+        animation: slideUp 0.3s ease-out;
+    }
+
+    @keyframes slideUp {
+        from { transform: translateX(-50%) translateY(120%); opacity: 0; }
+        to { transform: translateX(-50%) translateY(0); opacity: 1; }
+    }
+
+    #bulk-action-bar > div {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        justify-content: space-between;
+    }
+
+    #bulk-selected-count {
+        font-weight: 700;
+        color: var(--text);
+        font-size: 13px;
+        flex-shrink: 0;
+    }
+
+    #bulk-action-bar .btn-group {
+        display: flex;
+        gap: 8px;
+    }
+
+    /* ─ Error Message ─ */
+    .error-message {
+        background: #fef2f2;
+        border: 1px solid #fca5a5;
+        border-radius: 8px;
+        padding: 14px 16px;
+        margin-bottom: 16px;
+        color: #991b1b;
+    }
+
+    .error-message strong {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 700;
+    }
+
+    .error-message ul {
+        margin: 0;
+        padding-left: 20px;
+        font-size: 12px;
+    }
+
+    .error-message li {
+        margin: 4px 0;
+    }
+
+    /* ─ Empty State ─ */
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: var(--text-muted);
+    }
+
+    .empty-state strong {
+        color: var(--text);
+    }
+
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- JOB STATUS BAR -->
+<div id="job-bar" style="display:{% if job_status.running %}flex{% else %}none{% endif %};">
+    <div class="spinner"></div>
+    <div>
+        <strong>Analysis running...</strong>
+        <span id="job-progress">{{ job_status.progress }}</span>
+        (<span id="job-count">{{ job_status.processed }}</span> / <span id="job-total">{{ job_status.total }}</span>)
+    </div>
+</div>
+
+<!-- ERROR MESSAGE -->
+{% if job_status.errors %}
+<div class="error-message">
+    <strong>{{ job_status.errors|length }} error(s):</strong>
+    <ul>
+    {% for err in job_status.errors %}<li>{{ err }}</li>{% endfor %}
+    </ul>
+</div>
+{% endif %}
+
+<!-- PAGE HEADER -->
+<div class="page-header">
+    <h1>Ticket Dashboard</h1>
+    <div>
+        <span class="ticket-count">{{ tickets|length }} ticket{{ 's' if tickets|length != 1 else '' }}</span>
+
+        <!-- Export button -->
+        <a href="{{ url_for('export_excel') }}" class="btn btn-secondary btn-sm" title="Export to Excel">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            Export
+        </a>
+
+        <!-- Column visibility toggle -->
+        <div class="col-toggle-wrap">
+            <button type="button" class="btn btn-secondary btn-sm col-toggle-btn" onclick="document.getElementById('col-menu').classList.toggle('open')">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                Columns
+            </button>
+            <div class="col-toggle-menu" id="col-menu">
+                <div>Show / Hide Columns</div>
+                <label><input type="checkbox" data-col-toggle="0" checked> # (Ticket ID)</label>
+                <label><input type="checkbox" data-col-toggle="1" checked> Subject</label>
+                <label><input type="checkbox" data-col-toggle="2" checked> Status</label>
+                <label><input type="checkbox" data-col-toggle="3" checked> Requester</label>
+                <label><input type="checkbox" data-col-toggle="4" checked> Client</label>
+                <label><input type="checkbox" data-col-toggle="5" checked> Type</label>
+                <label><input type="checkbox" data-col-toggle="6" checked> Risk</label>
+                <label><input type="checkbox" data-col-toggle="7" checked> RICE</label>
+                <label><input type="checkbox" data-col-toggle="8" checked> PO Decision</label>
+                <label><input type="checkbox" data-col-toggle="9" checked> Inbox</label>
+                <label><input type="checkbox" data-col-toggle="10" checked> Summary</label>
+                <label><input type="checkbox" data-col-toggle="11" checked> Review</label>
+                <label><input type="checkbox" data-col-toggle="12" checked> Jira</label>
+                <label><input type="checkbox" data-col-toggle="13" checked> Created</label>
+                <label><input type="checkbox" data-col-toggle="14" checked> Updated</label>
+            </div>
+        </div>
+
+        <!-- Run Analysis button -->
+        <form method="POST" action="{{ url_for('run_analysis') }}" style="display:inline;">
+            <button type="submit" class="btn btn-primary btn-sm" {% if job_status.running %}disabled{% endif %}>
+                {% if job_status.running %}Running...{% else %}Run Analysis{% endif %}
+            </button>
+        </form>
+
+        <!-- Quick Inbox Refresh button -->
+        <form method="POST" action="{{ url_for('refresh_inbox') }}" style="display:inline;">
+            <button type="submit" class="btn btn-secondary btn-sm" title="Re-check inbox status for all open tickets (no AI, just conversation check)">
+                🔄 Refresh Inbox
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- STATS GRID -->
+<div class="stats">
+    <div class="stat primary">
+        <div class="label">Total Tickets</div>
+        <div class="value">{{ total }}</div>
+    </div>
+    <div class="stat warning">
+        <div class="label">Pending Review</div>
+        <div class="value">{{ pending }}</div>
+    </div>
+    <div class="stat info">
+        <div class="label">Reviewed</div>
+        <div class="value">{{ reviewed }}</div>
+    </div>
+    <div class="stat success">
+        <div class="label">Sent</div>
+        <div class="value">{{ sent }}</div>
+    </div>
+    <div class="stat danger">
+        <div class="label">High/Critical Risk</div>
+        <div class="value">{{ high_risk }}</div>
+    </div>
+    <div class="stat" style="background:linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);color:white;">
+        <div class="label" style="color:rgba(255,255,255,0.8);">This Week</div>
+        <div class="value">{{ this_week_count or 0 }}</div>
+    </div>
+    <div class="stat" style="background:linear-gradient(135deg, #10b981 0%, #059669 100%);color:white;">
+        <div class="label" style="color:rgba(255,255,255,0.8);">Resolved This Week</div>
+        <div class="value">{{ resolved_this_week_count or 0 }}</div>
+    </div>
+</div>
+
+<!-- FILTER CARD -->
+<div class="filter-card">
+    <form method="GET" action="{{ url_for('dashboard') }}">
+        <div class="filters-compact">
+            <div style="flex:1.3;">
+                <label>SEARCH</label>
+                <input type="text" name="q" placeholder="Search..." value="{{ filters.q }}">
+            </div>
+            <div>
+                <label>STATUS</label>
+                <select name="status"><option value="">All</option>{% for s in statuses %}<option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>TYPE</label>
+                <select name="classification"><option value="">All</option>{% for c in ["bug","feature_request","how_to","sync","data","other"] %}<option value="{{ c }}" {% if filters.classification == c %}selected{% endif %}>{{ c }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>CLIENT</label>
+                <select name="client"><option value="">All</option>{% for domain, name in companies %}<option value="{{ domain }}" {% if filters.client == domain %}selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>REQUESTER</label>
+                <select name="requester"><option value="">All</option>{% for r in requesters %}<option value="{{ r }}" {% if filters.requester == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>RISK</label>
+                <select name="risk"><option value="">All</option>{% for r in ["low","medium","high","critical"] %}<option value="{{ r }}" {% if filters.risk == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>PO</label>
+                <select name="po_decision"><option value="">All</option>{% for d in ["pending","approved","declined"] %}<option value="{{ d }}" {% if filters.po_decision == d %}selected{% endif %}>{{ d|title }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>INBOX</label>
+                <select name="responded"><option value="">All</option><option value="In Inbox" {% if filters.responded == 'In Inbox' %}selected{% endif %}>In Inbox</option><option value="Responded" {% if filters.responded == 'Responded' %}selected{% endif %}>Responded</option></select>
+            </div>
+            <div>
+                <label>REVIEW</label>
+                <select name="review"><option value="">All</option>{% for r in ["Pending","Reviewed","Sent","Rejected"] %}<option value="{{ r }}" {% if filters.review == r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+            </div>
+            <div>
+                <label>CREATED FROM</label>
+                <input type="date" name="date_from" id="filter-date-from" value="">
+            </div>
+            <div>
+                <label>CREATED TO</label>
+                <input type="date" name="date_to" id="filter-date-to" value="">
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-sm">Clear</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- TABLE -->
+<div class="table-card">
+    <div class="table-wrapper">
+        <table class="ntable" id="ticket-table">
+            <thead>
+                <tr id="header-row">
+                    <th style="width:3%;text-align:center;"><input type="checkbox" id="select-all-checkbox" onchange="toggleSelectAll(this.checked)"></th>
+                    <th class="col-id" data-col="0" data-key="ticket_id" data-type="num"><span class="th-content"><span class="th-label" draggable="true">#</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-subject" data-col="1" data-key="subject" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Subject</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-status" data-col="2" data-key="status" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Status</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-requester" data-col="3" data-key="requester" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Requester</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-client" data-col="4" data-key="client" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Client</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-type" data-col="5" data-key="type" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Type</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-risk" data-col="6" data-key="risk" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Risk</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-rice" data-col="7" data-key="rice" data-type="num"><span class="th-content"><span class="th-label" draggable="true">RICE</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-po" data-col="8" data-key="po" data-type="str"><span class="th-content"><span class="th-label" draggable="true">PO</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-inbox" data-col="9" data-key="inbox" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Inbox</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-summary" data-col="10" data-key="summary" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Summary</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-review" data-col="11" data-key="review" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Review</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-jira" data-col="12" data-key="jira" data-type="str"><span class="th-content"><span class="th-label" draggable="true">Jira</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-created" data-col="13" data-key="created" data-type="date"><span class="th-content"><span class="th-label" draggable="true">Created</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                    <th class="col-updated" data-col="14" data-key="updated" data-type="date"><span class="th-content"><span class="th-label" draggable="true">Updated</span><button class="sort-btn" title="Sort">⇅</button></span></th>
+                </tr>
+            </thead>
+            <tbody id="ticket-body">
+                {% for t in tickets %}
+                <tr onclick="if(event.target.type !== 'checkbox') window.location='{{ url_for('ticket_detail', ticket_id=t.ticket_id) }}'"
+                    data-ticket-id="{{ t.ticket_id }}"
+                    data-sort-ticket_id="{{ t.ticket_id }}"
+                    data-sort-subject="{{ t.subject|lower }}"
+                    data-sort-status="{{ t.status|lower }}"
+                    data-sort-requester="{{ (t.requester_name or '')|lower }}"
+                    data-sort-client="{{ extract_company(t.requester_email)|lower }}"
+                    data-sort-type="{{ (t.classification or '')|lower }}"
+                    data-sort-risk="{{ {'low':1,'medium':2,'high':3,'critical':4}.get(t.risk_level, 0) }}"
+                    data-sort-rice="{{ t.rice_score or 0 }}"
+                    data-sort-po="{{ (t.po_decision or 'pending')|lower }}"
+                    data-sort-inbox="{{ (t.responded or 'In Inbox')|lower }}"
+                    data-sort-summary="{{ (t.summary or '')|lower }}"
+                    data-sort-review="{{ (t.review_status or '')|lower }}"
+                    data-sort-jira="{{ (t.jira_ticket_key or '')|lower }}"
+                    data-sort-created="{{ t.created_at or '' }}"
+                    data-sort-updated="{{ t.updated_at or '' }}"
+                    data-created-at="{{ t.created_at or '' }}"
+                    data-updated-at="{{ t.updated_at or '' }}"
+                    data-status="{{ t.status or '' }}"
+                >
+                    <td style="text-align:center;"><input type="checkbox" class="row-checkbox" onchange="updateBulkActionBar()"></td>
+                    <td><strong>{{ t.ticket_id }}</strong></td>
+                    <td title="{{ t.subject }}" style="overflow:hidden;text-overflow:ellipsis;">{{ t.subject }}</td>
+                    <td>{% if t.status == 'Open' %}<span class="badge badge-open">Open</span>
+                        {% elif t.status == 'In Progress' %}<span class="badge" style="background:#dbeafe;color:#1e40af;">In Prog.</span>
+                        {% elif t.status == 'Pending Approval' %}<span class="badge" style="background:#fef3c7;color:#92400e;">Pend.Appr</span>
+                        {% elif t.status == 'Resolved' %}<span class="badge badge-resolved">Resolved</span>
+                        {% elif t.status == 'Closed' %}<span class="badge" style="background:#f0fdf4;color:#166534;">Closed</span>
+                        {% elif t.status == 'Assign to 3L' %}<span class="badge" style="background:#ede9fe;color:#5b21b6;">3L</span>
+                        {% elif t.status == 'Waiting on Customer' %}<span class="badge" style="background:#fff7ed;color:#9a3412;">Wait Cust</span>
+                        {% elif t.status == 'Waiting on Third Party' %}<span class="badge" style="background:#fdf4ff;color:#86198f;">Wait 3rd</span>
+                        {% else %}<span class="badge">{{ t.status }}</span>{% endif %}</td>
+                    <td title="{{ t.requester_email }}" style="overflow:hidden;text-overflow:ellipsis;">{{ t.requester_name }}</td>
+                    <td>{{ extract_company(t.requester_email) }}</td>
+                    <td>{% if t.classification == 'bug' %}<span class="badge badge-bug">bug</span>
+                        {% elif t.classification == 'feature_request' %}<span class="badge badge-feature">feature</span>
+                        {% elif t.classification == 'how_to' %}<span class="badge badge-howto">how-to</span>
+                        {% elif t.classification == 'sync' %}<span class="badge" style="background:#ecfdf5;color:#065f46;">sync</span>
+                        {% else %}<span class="badge">{{ t.classification or '—' }}</span>{% endif %}</td>
+                    <td>{% if t.risk_level == 'low' %}<span class="badge badge-low">low</span>
+                        {% elif t.risk_level == 'medium' %}<span class="badge badge-medium">med</span>
+                        {% elif t.risk_level == 'high' %}<span class="badge badge-high">high</span>
+                        {% elif t.risk_level == 'critical' %}<span class="badge badge-critical">crit</span>
+                        {% else %}<span class="badge">—</span>{% endif %}</td>
+                    <td>{% if t.rice_score and t.rice_score > 0 %}<span style="font-weight:700;font-size:0.85em;padding:3px 8px;border-radius:4px;
+                            {% if t.rice_score >= 15 %}background:#dcfce7;color:#166534;
+                            {% elif t.rice_score >= 5 %}background:#fef3c7;color:#92400e;
+                            {% else %}background:#fee2e2;color:#991b1b;{% endif %}
+                        ">{{ "%.0f"|format(t.rice_score) }}</span>
+                        {% else %}<span style="color:#cbd5e1;">—</span>{% endif %}</td>
+                    <td>{% if t.po_decision|lower == 'approved' %}<span class="badge" style="background:#dcfce7;color:#166534;">Yes</span>
+                        {% elif t.po_decision|lower == 'declined' %}<span class="badge" style="background:#fee2e2;color:#991b1b;">No</span>
+                        {% else %}<span class="badge" style="background:#f1f5f9;color:#94a3b8;">—</span>{% endif %}</td>
+                    <td>{% if t.responded == 'Responded' %}<span class="badge" style="background:#dcfce7;color:#166534;">Done</span>
+                        {% else %}<span class="badge" style="background:#dbeafe;color:#1e40af;">Inbox</span>{% endif %}</td>
+                    <td title="{{ t.summary }}" style="overflow:hidden;text-overflow:ellipsis;">{{ t.summary }}</td>
+                    <td>{% if t.review_status == 'Pending' %}<span class="badge badge-review-pending">Pend</span>
+                        {% elif t.review_status == 'Reviewed' %}<span class="badge badge-review-reviewed">Rev</span>
+                        {% elif t.review_status == 'Sent' %}<span class="badge badge-review-sent">Sent</span>
+                        {% else %}<span class="badge">{{ t.review_status }}</span>{% endif %}</td>
+                    <td>{% if t.jira_ticket_key %}<a href="{{ t.jira_ticket_url or '#' }}" target="_blank" class="badge-jira" onclick="event.stopPropagation();">{{ t.jira_ticket_key }}</a>{% else %}<span style="color:#cbd5e1;">—</span>{% endif %}</td>
+                    <td style="font-size:0.78em;color:var(--text-muted);">{{ t.created_at[:10] if t.created_at else '' }}</td>
+                    <td style="font-size:0.78em;color:var(--text-muted);">{{ t.updated_at[:10] if t.updated_at else '' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="16" class="empty-state">
+                    No tickets yet. Click <strong>Run Analysis</strong> to fetch and analyze tickets.
+                </td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- BULK ACTIONS FLOATING BAR -->
+<div id="bulk-action-bar">
+    <div>
+        <span id="bulk-selected-count">0 selected</span>
+        <div class="btn-group">
+            <button type="button" onclick="performBulkAction('approve')" class="btn btn-success btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                Approve
+            </button>
+            <button type="button" onclick="performBulkAction('decline')" class="btn btn-danger btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                Decline
+            </button>
+            <button type="button" onclick="performBulkAction('review')" class="btn btn-info btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M20.84 4.61a2.5 2.5 0 0 0-3.54 0l-2.41 2.41-1.82-1.82a2.5 2.5 0 0 0-3.54 0"/></svg>
+                Reviewed
+            </button>
+            <button type="button" onclick="closeBulkActionBar()" class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const table = document.getElementById('ticket-table');
+    const tbody = document.getElementById('ticket-body');
+    const headerRow = document.getElementById('header-row');
+    let activeSortMenu = null;
+
+    // ═══════════════════════════════════════════════════════════
+    // SORT — per-column dropdown with A→Z / Z→A options
+    // ═══════════════════════════════════════════════════════════
+    function closeSortMenus() {
+        document.querySelectorAll('.sort-dropdown.open').forEach(d => d.remove());
+        activeSortMenu = null;
+    }
+
+    function doSort(th, dir) {
+        const key = th.dataset.key;
+        const type = th.dataset.type;
+        if (!key) return;
+
+        // Clear all other sort indicators
+        headerRow.querySelectorAll('.sort-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.textContent = '⇅';
+        });
+        // Mark this column's button
+        const btn = th.querySelector('.sort-btn');
+        btn.classList.add('active');
+        btn.textContent = dir === 'asc' ? '▲' : '▼';
+
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        rows.sort((a, b) => {
+            let va = a.getAttribute('data-sort-' + key) || '';
+            let vb = b.getAttribute('data-sort-' + key) || '';
+            if (type === 'num') { va = parseFloat(va) || 0; vb = parseFloat(vb) || 0; }
+            else if (type === 'date') { va = va || '0000'; vb = vb || '0000'; }
+            let cmp = va < vb ? -1 : (va > vb ? 1 : 0);
+            return dir === 'asc' ? cmp : -cmp;
+        });
+        rows.forEach(r => tbody.appendChild(r));
+        closeSortMenus();
+    }
+
+    function getSortLabels(type) {
+        switch(type) {
+            case 'num':  return { asc: '1 → 9  Lowest first', desc: '9 → 1  Highest first' };
+            case 'date': return { asc: 'Oldest first', desc: 'Newest first' };
+            default:     return { asc: 'A → Z', desc: 'Z → A' };
+        }
+    }
+
+    headerRow.querySelectorAll('.sort-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const th = this.closest('th');
+            const key = th.dataset.key;
+            const type = th.dataset.type;
+
+            // Toggle off if same menu
+            if (activeSortMenu === key) { closeSortMenus(); return; }
+            closeSortMenus();
+
+            const labels = getSortLabels(type);
+            const menu = document.createElement('div');
+            menu.className = 'sort-dropdown open';
+            menu.innerHTML = `
+                <button data-dir="asc"><span class="sort-icon">▲</span> ${labels.asc}</button>
+                <button data-dir="desc"><span class="sort-icon">▼</span> ${labels.desc}</button>
+            `;
+            menu.querySelectorAll('button').forEach(b => {
+                b.addEventListener('click', function(ev) {
+                    ev.stopPropagation();
+                    doSort(th, this.dataset.dir);
+                });
+            });
+            th.style.position = 'relative';
+            th.appendChild(menu);
+            activeSortMenu = key;
+        });
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // DRAG & DROP COLUMN REORDER (on .th-label elements)
+    // ═══════════════════════════════════════════════════════════
+    let dragSrcCol = null;
+    const headers = headerRow.querySelectorAll('th');
+
+    headers.forEach(th => {
+        const label = th.querySelector('.th-label');
+        if (!label) return;
+
+        label.addEventListener('dragstart', function(e) {
+            dragSrcCol = parseInt(th.dataset.col);
+            th.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(dragSrcCol));
+        });
+        label.addEventListener('dragend', function() {
+            th.classList.remove('dragging');
+            headers.forEach(h => h.classList.remove('drag-over'));
+        });
+
+        th.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            this.classList.add('drag-over');
+        });
+        th.addEventListener('dragleave', function() { this.classList.remove('drag-over'); });
+        th.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            const targetCol = parseInt(this.dataset.col);
+            if (dragSrcCol === null || dragSrcCol === targetCol) return;
+            moveColumn(dragSrcCol, targetCol);
+            dragSrcCol = null;
+        });
+    });
+
+    function moveColumn(from, to) {
+        const ths = Array.from(headerRow.children);
+        const movedTh = ths[from];
+        if (from < to) headerRow.insertBefore(movedTh, ths[to].nextSibling);
+        else headerRow.insertBefore(movedTh, ths[to]);
+
+        tbody.querySelectorAll('tr').forEach(row => {
+            const cells = Array.from(row.children);
+            if (cells.length <= Math.max(from, to)) return;
+            const movedCell = cells[from];
+            if (from < to) row.insertBefore(movedCell, cells[to].nextSibling);
+            else row.insertBefore(movedCell, cells[to]);
+        });
+
+        // Re-index
+        Array.from(headerRow.children).forEach((th, i) => th.dataset.col = i);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // COLUMN VISIBILITY TOGGLE
+    // ═══════════════════════════════════════════════════════════
+    const colKeyMap = ['ticket_id','subject','status','requester','client','type','risk','rice','po','inbox','summary','review','jira','created','updated'];
+
+    function applyColumnVisibility(targetKey, show) {
+        const allTh = Array.from(headerRow.children);
+        allTh.forEach((th, currentIdx) => {
+            if (th.dataset.key === targetKey) {
+                th.style.display = show ? '' : 'none';
+                tbody.querySelectorAll('tr').forEach(row => {
+                    const cells = row.children;
+                    if (cells[currentIdx]) cells[currentIdx].style.display = show ? '' : 'none';
+                });
+            }
+        });
+    }
+
+    function saveColumnPrefs() {
+        const prefs = {};
+        document.querySelectorAll('[data-col-toggle]').forEach(cb => {
+            prefs[colKeyMap[parseInt(cb.dataset.colToggle)]] = cb.checked;
+        });
+        try { localStorage.setItem('dashboardColumnPrefs', JSON.stringify(prefs)); } catch(e) {}
+    }
+
+    function restoreColumnPrefs() {
+        try {
+            const saved = JSON.parse(localStorage.getItem('dashboardColumnPrefs'));
+            if (!saved) return;
+            document.querySelectorAll('[data-col-toggle]').forEach(cb => {
+                const key = colKeyMap[parseInt(cb.dataset.colToggle)];
+                if (key in saved) {
+                    cb.checked = saved[key];
+                    if (!saved[key]) applyColumnVisibility(key, false);
+                }
+            });
+        } catch(e) {}
+    }
+
+    // Restore saved preferences on load
+    restoreColumnPrefs();
+
+    document.querySelectorAll('[data-col-toggle]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const colIdx = parseInt(this.dataset.colToggle);
+            const show = this.checked;
+            const targetKey = colKeyMap[colIdx];
+            applyColumnVisibility(targetKey, show);
+            saveColumnPrefs();
+        });
+    });
+
+    // Close menus when clicking outside
+    document.addEventListener('click', function(e) {
+        const colMenu = document.getElementById('col-menu');
+        if (!e.target.closest('.col-toggle-btn') && !e.target.closest('.col-toggle-menu')) {
+            colMenu.classList.remove('open');
+        }
+        if (!e.target.closest('.sort-btn') && !e.target.closest('.sort-dropdown')) {
+            closeSortMenus();
+        }
+    });
+})();
+
+// ═══════════════════════════════════════════════════════════
+// AUTO-REFRESH JOB STATUS
+// ═══════════════════════════════════════════════════════════
+(function() {
+    let polling = {{ 'true' if job_status.running else 'false' }};
+    function poll() {
+        if (!polling) return;
+        fetch('/api/status').then(r => r.json()).then(data => {
+            const bar = document.getElementById('job-bar');
+            if (data.running) {
+                bar.style.display = 'flex';
+                document.getElementById('job-progress').textContent = data.progress;
+                document.getElementById('job-count').textContent = data.processed;
+                document.getElementById('job-total').textContent = data.total;
+                setTimeout(poll, 2000);
+            } else { window.location.reload(); }
+        }).catch(() => setTimeout(poll, 3000));
+    }
+    if (polling) setTimeout(poll, 2000);
+})();
+
+// ═══════════════════════════════════════════════════════════
+// BULK ACTIONS & DATE FILTERING
+// ═══════════════════════════════════════════════════════════
+function toggleSelectAll(checked) {
+    document.querySelectorAll('.row-checkbox').forEach(cb => {
+        cb.checked = checked;
+    });
+    updateBulkActionBar();
+}
+
+function updateBulkActionBar() {
+    const selected = document.querySelectorAll('.row-checkbox:checked').length;
+    const bar = document.getElementById('bulk-action-bar');
+    const countEl = document.getElementById('bulk-selected-count');
+
+    if (selected > 0) {
+        bar.style.display = 'flex';
+        countEl.textContent = selected + ' selected';
+    } else {
+        bar.style.display = 'none';
+    }
+}
+
+function closeBulkActionBar() {
+    document.getElementById('select-all-checkbox').checked = false;
+    document.querySelectorAll('.row-checkbox').forEach(cb => {
+        cb.checked = false;
+    });
+    updateBulkActionBar();
+}
+
+function getSelectedTicketIds() {
+    const ids = [];
+    document.querySelectorAll('.row-checkbox:checked').forEach(cb => {
+        const row = cb.closest('tr');
+        const id = row.getAttribute('data-ticket-id');
+        if (id) ids.push(id);
+    });
+    return ids;
+}
+
+function performBulkAction(action) {
+    const ids = getSelectedTicketIds();
+    if (ids.length === 0) {
+        alert('No tickets selected');
+        return;
+    }
+
+    const actionLabel = {
+        'approve': 'approve',
+        'decline': 'decline',
+        'review': 'mark as reviewed'
+    }[action] || action;
+
+    if (!confirm('Are you sure you want to ' + actionLabel + ' ' + ids.length + ' ticket(s)?')) {
+        return;
+    }
+
+    const btn = event.target.closest('button');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div style="width:12px;height:12px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;margin-right:4px;"></div> Working...';
+
+    fetch('/bulk-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, ticket_ids: ids })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('Successfully ' + actionLabel + ' ' + ids.length + ' ticket(s)');
+            window.location.reload();
+        } else {
+            alert('Error: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => {
+        alert('Error: ' + err.message);
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
+}
+
+// ═══════════════════════════════════════════════════════════
+// DATE RANGE FILTERING (client-side)
+// ═══════════════════════════════════════════════════════════
+function applyDateFilters() {
+    const dateFromEl = document.getElementById('filter-date-from');
+    const dateToEl = document.getElementById('filter-date-to');
+    const dateFrom = dateFromEl.value;
+    const dateTo = dateToEl.value;
+
+    document.querySelectorAll('#ticket-body tr').forEach(row => {
+        const createdAt = row.getAttribute('data-created-at');
+        let show = true;
+
+        if (dateFrom && createdAt < dateFrom) show = false;
+        if (dateTo && createdAt > dateTo) show = false;
+
+        row.style.display = show ? '' : 'none';
+    });
+}
+
+document.getElementById('filter-date-from')?.addEventListener('change', applyDateFilters);
+document.getElementById('filter-date-to')?.addEventListener('change', applyDateFilters);
+
+// Client-side calculation of "This Week" stats on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const weekAgoStr = weekAgo.toISOString().split('T')[0];
+
+    let thisWeekCount = 0;
+    let resolvedThisWeekCount = 0;
+
+    document.querySelectorAll('#ticket-body tr').forEach(row => {
+        const createdAt = row.getAttribute('data-created-at');
+        const status = row.getAttribute('data-status');
+        const updatedAt = row.getAttribute('data-updated-at');
+
+        if (createdAt >= weekAgoStr) {
+            thisWeekCount++;
+        }
+
+        if ((status === 'Resolved' || status === 'Closed') && updatedAt >= weekAgoStr) {
+            resolvedThisWeekCount++;
+        }
+    });
+
+    const thisWeekEl = document.querySelector('.stats .stat:nth-child(6) .value');
+    const resolvedThisWeekEl = document.querySelector('.stats .stat:nth-child(7) .value');
+
+    if (thisWeekEl && thisWeekCount > 0) {
+        thisWeekEl.textContent = thisWeekCount;
+    }
+    if (resolvedThisWeekEl && resolvedThisWeekCount > 0) {
+        resolvedThisWeekEl.textContent = resolvedThisWeekCount;
+    }
+});
+</script>
+{% endblock %}

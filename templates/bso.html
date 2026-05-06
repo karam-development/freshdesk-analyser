@@ -1,0 +1,577 @@
+{% extends "base.html" %}
+{% block title %}BSO Board - Freshdesk AI Analyzer{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+
+{% block head %}
+<style>
+    /* ── BSO Board Layout ── */
+    .bso-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+    .bso-header h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text);
+    }
+    .bso-header-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    /* ── Filters ── */
+    .bso-filters {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+    .bso-filters select {
+        padding: 6px 10px;
+        font-size: 13px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: white;
+        color: var(--text);
+        min-width: 120px;
+    }
+    .bso-filters label {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }
+
+    /* ── Kanban Board ── */
+    .kanban {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 16px;
+        min-height: calc(100vh - 220px);
+        align-items: start;
+    }
+
+    /* ── Kanban Column ── */
+    .kanban-col {
+        background: #f1f5f9;
+        border-radius: 10px;
+        padding: 12px;
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+    }
+    .kanban-col.drag-over {
+        background: #e0e7ff;
+        outline: 2px dashed var(--primary);
+        outline-offset: -2px;
+    }
+
+    .col-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 6px 12px;
+        border-bottom: 2px solid transparent;
+    }
+    .col-header h3 {
+        font-size: 13px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+        color: var(--text-muted);
+    }
+    .col-count {
+        background: var(--border);
+        color: var(--text-muted);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 8px;
+        border-radius: 10px;
+    }
+
+    /* Column color accents */
+    .kanban-col[data-col="backlog"] .col-header { border-bottom-color: #94a3b8; }
+    .kanban-col[data-col="to_do"] .col-header { border-bottom-color: #3b82f6; }
+    .kanban-col[data-col="in_progress"] .col-header { border-bottom-color: #f59e0b; }
+    .kanban-col[data-col="done"] .col-header { border-bottom-color: #10b981; }
+
+    .col-cards {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding-top: 8px;
+        min-height: 60px;
+    }
+
+    /* ── Kanban Card ── */
+    .k-card {
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px;
+        cursor: grab;
+        transition: all 0.15s;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        position: relative;
+    }
+    .k-card:hover {
+        border-color: var(--primary);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .k-card:active {
+        cursor: grabbing;
+        opacity: 0.85;
+    }
+    .k-card.dragging {
+        opacity: 0.4;
+        transform: rotate(2deg);
+    }
+
+    .k-card-id {
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--primary);
+        margin-bottom: 4px;
+    }
+    .k-card-subject {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 8px;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .k-card-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+    .k-badge {
+        font-size: 10px;
+        font-weight: 600;
+        padding: 2px 6px;
+        border-radius: 4px;
+        white-space: nowrap;
+    }
+    .k-badge-bug { background: #fee2e2; color: #991b1b; }
+    .k-badge-feature { background: #e0e7ff; color: #3730a3; }
+    .k-badge-howto { background: #fef3c7; color: #92400e; }
+    .k-badge-other { background: #f1f5f9; color: #475569; }
+    .k-badge-risk-high { background: #fed7aa; color: #9a3412; }
+    .k-badge-risk-critical { background: #fee2e2; color: #991b1b; }
+    .k-badge-risk-medium { background: #fef3c7; color: #92400e; }
+    .k-badge-risk-low { background: #dcfce7; color: #166534; }
+
+    .k-card-client {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 6px;
+    }
+
+    .k-card-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 8px;
+        border-top: 1px solid #f1f5f9;
+    }
+    .k-card-rice {
+        font-size: 11px;
+        font-weight: 700;
+        padding: 2px 6px;
+        border-radius: 4px;
+    }
+    .k-card-actions {
+        display: flex;
+        gap: 4px;
+    }
+    .k-action-btn {
+        background: none;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 3px 7px;
+        font-size: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        color: var(--text-muted);
+        transition: all 0.15s;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+    }
+    .k-action-btn:hover {
+        border-color: var(--primary);
+        color: var(--primary);
+        background: var(--primary-bg);
+    }
+    .k-action-btn.jira-btn {
+        color: #3730a3;
+        border-color: #c7d2fe;
+    }
+    .k-action-btn.jira-btn:hover {
+        background: #e0e7ff;
+    }
+    .k-jira-linked {
+        font-size: 10px;
+        font-weight: 700;
+        color: #3730a3;
+        background: #e0e7ff;
+        padding: 2px 6px;
+        border-radius: 3px;
+        text-decoration: none;
+    }
+    .k-jira-linked:hover {
+        background: #c7d2fe;
+    }
+
+    /* ── Stats Bar ── */
+    .bso-stats {
+        display: flex;
+        gap: 16px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+    }
+    .bso-stat {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+    .bso-stat strong {
+        color: var(--text);
+        font-weight: 700;
+    }
+    .bso-stat .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    /* ── Toast notification ── */
+    .toast {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: white;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        font-size: 13px;
+        z-index: 1000;
+        animation: slideUp 0.3s ease-out;
+        display: none;
+    }
+    .toast.success { border-left: 3px solid var(--success); }
+    .toast.error { border-left: 3px solid var(--danger); }
+    @keyframes slideUp {
+        from { transform: translateY(100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 1200px) {
+        .kanban { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 700px) {
+        .kanban { grid-template-columns: 1fr; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- HEADER -->
+<div class="bso-header">
+    <div>
+        <h1>BSO Board</h1>
+        <p style="color: var(--text-muted); font-size: 0.85em; margin-top: 2px;">
+            Drag tickets between columns to track progress. Ship to Jira with one click.
+        </p>
+    </div>
+    <div class="bso-header-actions">
+        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">{{ total_tickets }} ticket{{ 's' if total_tickets != 1 else '' }}</span>
+        <a href="{{ url_for('dashboard') }}" class="btn btn-secondary btn-sm">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Table View
+        </a>
+    </div>
+</div>
+
+<!-- FILTERS -->
+<form method="GET" action="{{ url_for('bso_board') }}" class="bso-filters">
+    <div class="filter-group">
+        <label>TYPE</label>
+        <select name="classification">
+            <option value="">All Types</option>
+            {% for c in ["bug","feature_request","how_to","sync","data","other"] %}
+            <option value="{{ c }}" {% if filters.classification == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group">
+        <label>CLIENT</label>
+        <select name="client">
+            <option value="">All Clients</option>
+            {% for c in companies %}
+            <option value="{{ c }}" {% if filters.client == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="filter-group" style="align-self: flex-end;">
+        <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; text-transform: none; font-weight: 500; font-size: 13px;">
+            <input type="checkbox" name="show_all" value="1" {% if filters.show_all %}checked{% endif %} style="width: auto; min-width: auto;" onchange="this.form.submit()">
+            Show all (incl. pending PO)
+        </label>
+    </div>
+    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+    <a href="{{ url_for('bso_board') }}" class="btn btn-secondary btn-sm">Clear</a>
+</form>
+
+<!-- STATS -->
+<div class="bso-stats">
+    {% for col_key in column_order %}
+    <div class="bso-stat">
+        <div class="dot" style="background:{% if col_key == 'backlog' %}#94a3b8{% elif col_key == 'to_do' %}#3b82f6{% elif col_key == 'in_progress' %}#f59e0b{% else %}#10b981{% endif %};"></div>
+        {{ column_labels[col_key] }}: <strong>{{ columns[col_key]|length }}</strong>
+    </div>
+    {% endfor %}
+    {% set jira_count = namespace(val=0) %}
+    {% for col_key in column_order %}{% for t in columns[col_key] %}{% if t.jira_ticket_key %}{% set jira_count.val = jira_count.val + 1 %}{% endif %}{% endfor %}{% endfor %}
+    <div class="bso-stat" style="margin-left: auto;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3730a3" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        Linked to Jira: <strong>{{ jira_count.val }}</strong>
+    </div>
+</div>
+
+<!-- KANBAN BOARD -->
+<div class="kanban" id="kanban-board">
+    {% for col_key in column_order %}
+    <div class="kanban-col" data-col="{{ col_key }}"
+         ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+        <div class="col-header">
+            <h3>{{ column_labels[col_key] }}</h3>
+            <span class="col-count" id="count-{{ col_key }}">{{ columns[col_key]|length }}</span>
+        </div>
+        <div class="col-cards" id="cards-{{ col_key }}">
+            {% for t in columns[col_key] %}
+            <div class="k-card" draggable="true"
+                 data-ticket-id="{{ t.ticket_id }}"
+                 ondragstart="onDragStart(event)" ondragend="onDragEnd(event)">
+
+                <div class="k-card-id">#{{ t.ticket_id }}</div>
+                <div class="k-card-subject" title="{{ t.subject }}">{{ t.subject }}</div>
+
+                <div class="k-card-meta">
+                    {% if t.classification == 'bug' %}<span class="k-badge k-badge-bug">Bug</span>
+                    {% elif t.classification == 'feature_request' %}<span class="k-badge k-badge-feature">Feature</span>
+                    {% elif t.classification == 'how_to' %}<span class="k-badge k-badge-howto">How-to</span>
+                    {% else %}<span class="k-badge k-badge-other">{{ t.classification or '—' }}</span>{% endif %}
+
+                    {% if t.risk_level == 'critical' %}<span class="k-badge k-badge-risk-critical">Critical</span>
+                    {% elif t.risk_level == 'high' %}<span class="k-badge k-badge-risk-high">High</span>
+                    {% elif t.risk_level == 'medium' %}<span class="k-badge k-badge-risk-medium">Med</span>
+                    {% elif t.risk_level == 'low' %}<span class="k-badge k-badge-risk-low">Low</span>{% endif %}
+                </div>
+
+                <div class="k-card-client">{{ extract_company(t.requester_email) }} · {{ t.requester_name or 'Unknown' }}</div>
+
+                <div class="k-card-footer">
+                    <div>
+                        {% if t.rice_score and t.rice_score > 0 %}
+                        <span class="k-card-rice" style="{% if t.rice_score >= 15 %}background:#dcfce7;color:#166534;{% elif t.rice_score >= 5 %}background:#fef3c7;color:#92400e;{% else %}background:#fee2e2;color:#991b1b;{% endif %}">
+                            RICE {{ "%.0f"|format(t.rice_score) }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="k-card-actions">
+                        {% if t.jira_ticket_key %}
+                        <a href="{{ t.jira_ticket_url or '#' }}" target="_blank" class="k-jira-linked" onclick="event.stopPropagation();">{{ t.jira_ticket_key }}</a>
+                        {% else %}
+                        <button type="button" class="k-action-btn jira-btn jira-open-btn"
+                                data-ticket-id="{{ t.ticket_id }}"
+                                data-subject="{{ t.subject|e }}"
+                                data-classification="{{ t.classification or '' }}"
+                                data-risk-level="{{ t.risk_level or '' }}"
+                                title="Create Jira ticket">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                            Jira
+                        </button>
+                        {% endif %}
+                        <a href="{{ url_for('ticket_detail', ticket_id=t.ticket_id) }}" class="k-action-btn" onclick="event.stopPropagation();" title="View details">
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            View
+                        </a>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast"></div>
+
+<!-- JIRA MODAL -->
+{% include 'jira_modal.html' %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ═══════════════════════════════════════════════════════════
+// DRAG & DROP
+// ═══════════════════════════════════════════════════════════
+let draggedCard = null;
+let draggedTicketId = null;
+
+function onDragStart(e) {
+    draggedCard = e.target.closest('.k-card');
+    draggedTicketId = draggedCard.dataset.ticketId;
+    draggedCard.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', draggedTicketId);
+}
+
+function onDragEnd(e) {
+    if (draggedCard) draggedCard.classList.remove('dragging');
+    document.querySelectorAll('.kanban-col').forEach(c => c.classList.remove('drag-over'));
+    draggedCard = null;
+    draggedTicketId = null;
+}
+
+function onDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const col = e.target.closest('.kanban-col');
+    if (col) col.classList.add('drag-over');
+}
+
+function onDragLeave(e) {
+    const col = e.target.closest('.kanban-col');
+    if (col && !col.contains(e.relatedTarget)) {
+        col.classList.remove('drag-over');
+    }
+}
+
+function onDrop(e) {
+    e.preventDefault();
+    const col = e.target.closest('.kanban-col');
+    if (!col || !draggedCard) return;
+
+    col.classList.remove('drag-over');
+    const newStatus = col.dataset.col;
+    const ticketId = draggedCard.dataset.ticketId;
+
+    // Get source column
+    const sourceCol = draggedCard.closest('.kanban-col');
+    const sourceStatus = sourceCol ? sourceCol.dataset.col : '';
+
+    // Don't do anything if same column
+    if (sourceStatus === newStatus) return;
+
+    // Move the card visually
+    const cardsContainer = col.querySelector('.col-cards');
+    cardsContainer.appendChild(draggedCard);
+    draggedCard.classList.remove('dragging');
+
+    // Update counts
+    updateCounts();
+
+    // Persist to server
+    fetch('/api/bso/move', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ticket_id: parseInt(ticketId), status: newStatus})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            showToast(data.message, 'success');
+        } else {
+            showToast('Error: ' + data.message, 'error');
+            // Revert — move card back
+            if (sourceCol) {
+                sourceCol.querySelector('.col-cards').appendChild(draggedCard);
+                updateCounts();
+            }
+        }
+    })
+    .catch(err => {
+        showToast('Network error: ' + err.message, 'error');
+    });
+}
+
+function updateCounts() {
+    document.querySelectorAll('.kanban-col').forEach(col => {
+        const count = col.querySelectorAll('.k-card').length;
+        const countEl = col.querySelector('.col-count');
+        if (countEl) countEl.textContent = count;
+    });
+}
+
+// Ship to Jira is now handled by the Jira modal (jira_modal.html)
+
+// ═══════════════════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════════════════
+function showToast(message, type) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast ' + (type || 'success');
+    toast.style.display = 'block';
+    clearTimeout(toast._timeout);
+    toast._timeout = setTimeout(() => { toast.style.display = 'none'; }, 3000);
+}
+
+// ═══════════════════════════════════════════════════════════
+// CARD CLICK → Ticket Detail
+// ═══════════════════════════════════════════════════════════
+document.querySelectorAll('.k-card').forEach(card => {
+    card.addEventListener('click', function(e) {
+        // Don't navigate if clicking a button or link
+        if (e.target.closest('button') || e.target.closest('a')) return;
+        const id = this.dataset.ticketId;
+        window.location.href = '/ticket/' + id;
+    });
+});
+
+// ═══════════════════════════════════════════════════════════
+// JIRA MODAL OPEN — via data attributes (avoids quote escaping)
+// ═══════════════════════════════════════════════════════════
+document.querySelectorAll('.jira-open-btn').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const tid = parseInt(this.dataset.ticketId);
+        const opts = {
+            subject: this.dataset.subject || '',
+            classification: this.dataset.classification || '',
+            risk_level: this.dataset.riskLevel || ''
+        };
+        openJiraModal(tid, opts);
+    });
+});
+</script>
+{% endblock %}

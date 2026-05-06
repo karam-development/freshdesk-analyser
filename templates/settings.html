@@ -1,0 +1,1255 @@
+{% extends "base.html" %}
+{% block title %}Settings - Freshdesk AI Analyzer{% endblock %}
+
+{% block head %}
+<style>
+    /* ── Page Header ── */
+    .page-header {
+        margin-bottom: 32px;
+    }
+
+    /* ── Settings Layout ── */
+    .settings-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 28px;
+    }
+
+    /* ── Settings Section Card ── */
+    .settings-section {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 24px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .settings-section h3 {
+        font-size: 1em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Form Group ── */
+    .form-group {
+        margin-bottom: 18px;
+    }
+
+    .form-group label {
+        display: block;
+        font-size: 0.85em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="password"],
+    .form-group input[type="email"],
+    .form-group input[type="date"],
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--card);
+        color: var(--text);
+        font-size: 0.9em;
+        font-family: inherit;
+        transition: all 0.2s;
+        box-sizing: border-box;
+    }
+
+    .form-group textarea {
+        resize: vertical;
+        font-family: 'Courier New', monospace;
+    }
+
+    .form-group input[type="text"]:focus,
+    .form-group input[type="password"]:focus,
+    .form-group input[type="email"]:focus,
+    .form-group input[type="date"]:focus,
+    .form-group select:focus,
+    .form-group textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px var(--primary-bg);
+        background: var(--card);
+    }
+
+    .hint {
+        font-size: 0.8em;
+        color: var(--text-muted);
+        margin-top: 6px;
+        line-height: 1.4;
+    }
+
+    .hint a {
+        color: var(--primary);
+        text-decoration: none;
+    }
+
+    .hint a:hover {
+        text-decoration: underline;
+    }
+
+    /* ── Test Result ── */
+    .test-result {
+        display: none;
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 6px;
+        font-size: 0.85em;
+        line-height: 1.4;
+        border: 1px solid;
+    }
+
+    .test-result.success {
+        background: var(--success-bg);
+        border-color: #bbf7d0;
+        color: #166534;
+    }
+
+    .test-result.error {
+        background: var(--danger-bg);
+        border-color: #fecaca;
+        color: #991b1b;
+    }
+
+    /* ── Checkbox Group ── */
+    .checkbox-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 10px;
+    }
+
+    .checkbox-group label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 400;
+        font-size: 0.9em;
+        cursor: pointer;
+        text-transform: none;
+        letter-spacing: normal;
+        margin-bottom: 0;
+        text-transform: none;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+        cursor: pointer;
+        accent-color: var(--primary);
+    }
+
+    /* ── Custom Country Group ── */
+    #custom-country-group {
+        margin-top: 0;
+    }
+
+    /* ── Test Button ── */
+    .test-btn {
+        margin-top: 6px;
+        margin-bottom: 0;
+    }
+
+    /* ── Info Box ── */
+    .info-box {
+        background: var(--primary-bg);
+        border: 1px solid var(--primary);
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 16px;
+        font-size: 0.85em;
+    }
+
+    .info-box strong {
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .info-box p {
+        margin: 6px 0 0 0;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
+
+    .info-box a {
+        color: var(--primary);
+        text-decoration: none;
+    }
+
+    .info-box a:hover {
+        text-decoration: underline;
+    }
+
+    /* ── Knowledge Base Section ── */
+    #knowledge-base {
+        margin-top: 48px;
+    }
+
+    .kb-intro {
+        color: var(--text-muted);
+        margin-bottom: 24px;
+        font-size: 0.9em;
+        line-height: 1.5;
+    }
+
+    /* ── Custom Instructions Card ── */
+    .ai-instructions-card {
+        background: linear-gradient(135deg, #faf5ff 0%, #f5f3ff 100%);
+        border: 1px solid #c4b5fd;
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .ai-instructions-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .ai-icon {
+        background: #7c3aed;
+        color: white;
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.9em;
+    }
+
+    .ai-instructions-header h3 {
+        margin: 0;
+        font-size: 1em;
+        font-weight: 600;
+    }
+
+    .ai-instructions-header p {
+        margin: 0;
+        font-size: 0.8em;
+        color: #7c3aed;
+    }
+
+    .ai-instructions-description {
+        font-size: 0.85em;
+        color: #475569;
+        line-height: 1.6;
+        margin-bottom: 16px;
+    }
+
+    .ai-instructions-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 16px;
+    }
+
+    .ai-instructions-actions .btn {
+        background: #7c3aed;
+        border-color: #7c3aed;
+    }
+
+    .ai-instructions-actions .btn:hover {
+        background: #6d28d9;
+        border-color: #6d28d9;
+    }
+
+    .instruction-status {
+        font-size: 0.82em;
+        font-weight: 500;
+    }
+
+    .instruction-status.active {
+        color: #16a34a;
+    }
+
+    .instruction-status.inactive {
+        color: #94a3b8;
+    }
+
+    /* ── KB Entry Type Options ── */
+    .type-options {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+        flex-wrap: wrap;
+    }
+
+    .type-option {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px;
+        border: 2px solid var(--border);
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 500;
+        font-size: 0.9em;
+        transition: all 0.15s;
+        background: var(--card);
+        color: var(--text);
+    }
+
+    .type-option input[type="radio"] {
+        cursor: pointer;
+        accent-color: var(--primary);
+    }
+
+    .type-option:has(input:checked) {
+        border-color: var(--primary);
+        background: var(--primary-bg);
+    }
+
+    /* ── Add Entry Card ── */
+    .add-entry-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .add-entry-card h3 {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    /* ── Two Column Grid ── */
+    .two-column-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+
+    /* ── File Input ── */
+    .file-input-custom {
+        padding: 10px;
+        border: 2px dashed var(--border);
+        border-radius: 8px;
+        width: 100%;
+        background: var(--bg-subtle);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .file-input-custom:hover {
+        border-color: var(--primary);
+        background: var(--primary-bg);
+    }
+
+    /* ── KB Entry Card ── */
+    .kb-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .kb-card h3 {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .category-badge {
+        background: var(--primary-bg);
+        color: var(--primary);
+        padding: 2px 10px;
+        border-radius: 12px;
+        font-size: 0.75em;
+        font-weight: 600;
+    }
+
+    /* ── KB Entry Item ── */
+    .kb-entry {
+        background: var(--bg-subtle);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 10px;
+        transition: all 0.2s;
+    }
+
+    .kb-entry:hover {
+        border-color: var(--primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+
+    .kb-entry-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .kb-entry-title {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .kb-entry-type-badge {
+        padding: 1px 8px;
+        border-radius: 10px;
+        font-size: 0.72em;
+        font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .kb-entry-type-badge.file {
+        background: #dbeafe;
+        color: #1e40af;
+    }
+
+    .kb-entry-type-badge.url {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .kb-entry-type-badge.text {
+        background: #f0fdf4;
+        color: #166534;
+    }
+
+    .kb-entry-url {
+        font-size: 0.82em;
+        color: var(--primary);
+        word-break: break-all;
+    }
+
+    .kb-entry-content {
+        font-size: 0.85em;
+        color: var(--text-muted);
+        margin-top: 6px;
+        white-space: pre-wrap;
+        line-height: 1.5;
+    }
+
+    .kb-entry-actions {
+        display: flex;
+        gap: 6px;
+        flex-shrink: 0;
+    }
+
+    .kb-entry-edit-form {
+        display: none;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+    }
+
+    /* ── Empty State ── */
+    .empty-state {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 40px;
+        text-align: center;
+        color: var(--text-muted);
+    }
+
+    .empty-state p {
+        margin: 8px 0;
+        line-height: 1.5;
+    }
+
+    /* ── Buttons ── */
+    .btn-group {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+    }
+
+    .btn-group.full {
+        width: 100%;
+    }
+
+    .btn-group.full .btn {
+        flex: 1;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+        .settings-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .two-column-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .ai-instructions-actions {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .ai-instructions-actions .btn {
+            width: 100%;
+        }
+
+        .kb-entry-actions {
+            width: 100%;
+        }
+
+        .kb-entry-actions .btn {
+            flex: 1;
+        }
+    }
+
+    @media (max-width: 640px) {
+        .settings-section {
+            padding: 16px;
+        }
+
+        .add-entry-card {
+            padding: 16px;
+        }
+
+        .kb-card {
+            padding: 16px;
+        }
+
+        .ai-instructions-card {
+            padding: 16px;
+        }
+
+        .type-options {
+            flex-direction: column;
+        }
+
+        .type-option {
+            width: 100%;
+        }
+
+        .kb-entry-header {
+            flex-direction: column;
+        }
+
+        .kb-entry-actions {
+            flex-direction: row;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- HEADER -->
+<div class="page-header">
+    <h1>Settings</h1>
+    <p style="color: var(--text-muted); font-size: 0.95em; margin-top: 4px;">Configure Freshdesk, AI, and reference materials</p>
+</div>
+
+<!-- SETTINGS FORM -->
+<form method="POST" action="{{ url_for('settings') }}">
+    <div class="settings-grid">
+
+        <!-- FRESHDESK SETTINGS -->
+        <div class="settings-section">
+            <h3>Freshdesk Configuration</h3>
+
+            <div class="form-group">
+                <label>Freshdesk API Key</label>
+                <input type="password" name="freshdesk_api_key" value="{{ settings.freshdesk_api_key }}" placeholder="Your Freshdesk API key" id="fd-key">
+                <div class="hint">Find it in Freshdesk → Profile Settings → Your API Key</div>
+                <button type="button" class="btn btn-secondary btn-sm test-btn" onclick="testFreshdesk()">Test Connection</button>
+                <div class="test-result" id="fd-result"></div>
+            </div>
+
+            <div class="form-group">
+                <label>Freshdesk Domain</label>
+                <input type="text" name="freshdesk_domain" value="{{ settings.freshdesk_domain }}" placeholder="silverfin.freshdesk.com">
+                <div class="hint">Your Freshdesk subdomain (e.g. silverfin.freshdesk.com)</div>
+            </div>
+
+            <div class="form-group">
+                <label>Group ID</label>
+                <input type="text" name="freshdesk_group_id" value="{{ settings.freshdesk_group_id }}" placeholder="101000372179">
+                <div class="hint">The Freshdesk group to monitor (default: 3L Product LUX = 101000372179)</div>
+            </div>
+
+            <div class="form-group">
+                <label>Country Filter</label>
+                <select name="freshdesk_country">
+                    <option value="" {% if not settings.freshdesk_country %}selected{% endif %}>All Countries (no filter)</option>
+                    <option value="Luxembourg" {% if settings.freshdesk_country == 'Luxembourg' %}selected{% endif %}>Luxembourg</option>
+                    <option value="Belgium" {% if settings.freshdesk_country == 'Belgium' %}selected{% endif %}>Belgium</option>
+                    <option value="Netherlands" {% if settings.freshdesk_country == 'Netherlands' %}selected{% endif %}>Netherlands</option>
+                    <option value="France" {% if settings.freshdesk_country == 'France' %}selected{% endif %}>France</option>
+                    <option value="Germany" {% if settings.freshdesk_country == 'Germany' %}selected{% endif %}>Germany</option>
+                    <option value="United Kingdom" {% if settings.freshdesk_country == 'United Kingdom' %}selected{% endif %}>United Kingdom</option>
+                    <option value="Ireland" {% if settings.freshdesk_country == 'Ireland' %}selected{% endif %}>Ireland</option>
+                    <option value="Spain" {% if settings.freshdesk_country == 'Spain' %}selected{% endif %}>Spain</option>
+                    <option value="Portugal" {% if settings.freshdesk_country == 'Portugal' %}selected{% endif %}>Portugal</option>
+                    <option value="other" {% if settings.freshdesk_country == 'other' %}selected{% endif %}>Other (type below)</option>
+                </select>
+                <div class="hint">Filter tickets by country. Leave as "All Countries" to process all tickets in the group.</div>
+            </div>
+
+            <div class="form-group" id="custom-country-group" style="display: {% if settings.freshdesk_country and settings.freshdesk_country not in ['', 'Luxembourg', 'Belgium', 'Netherlands', 'France', 'Germany', 'United Kingdom', 'Ireland', 'Spain', 'Portugal', 'other'] %}block{% else %}none{% endif %};">
+                <label>Custom Country Name</label>
+                <input type="text" name="freshdesk_country_custom" value="{{ settings.freshdesk_country_custom or '' }}" placeholder="Type country name exactly as in Freshdesk">
+            </div>
+
+            <div class="form-group">
+                <label>Ticket Statuses to Process</label>
+                <div class="checkbox-group">
+                    {% set active_statuses = (settings.freshdesk_statuses or '2,3,4,20').split(',') %}
+                    {% for code, label in [('2','Open'), ('3','In Progress'), ('4','Resolved'), ('5','Closed'), ('18','Pending Approval'), ('20','Assign to 3L')] %}
+                    <label>
+                        <input type="checkbox" name="freshdesk_statuses" value="{{ code }}" {% if code in active_statuses %}checked{% endif %}>
+                        {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
+                <div class="hint">Which ticket statuses should be fetched and analyzed</div>
+            </div>
+        </div>
+
+        <!-- AI SETTINGS -->
+        <div class="settings-section">
+            <h3>Claude AI Configuration</h3>
+
+            <div class="form-group">
+                <label>Anthropic API Key</label>
+                <input type="password" name="anthropic_api_key" value="{{ settings.anthropic_api_key }}" placeholder="sk-ant-..." id="ai-key">
+                <div class="hint">Get it from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></div>
+                <button type="button" class="btn btn-secondary btn-sm test-btn" onclick="testAnthropic()">Test Connection</button>
+                <div class="test-result" id="ai-result"></div>
+            </div>
+
+            <div class="form-group">
+                <label>AI Writing Style</label>
+                <select name="writing_style">
+                    {% for key, style in writing_styles.items() %}
+                    <option value="{{ key }}" {% if settings.writing_style == key %}selected{% endif %}>{{ style.label }}</option>
+                    {% endfor %}
+                </select>
+                <div class="hint">Controls how the AI drafts responses. "Customer Support" is warm and soft; "Product Owner" is direct and technical.</div>
+            </div>
+
+            <div class="form-group">
+                <label>Template Code Path</label>
+                <input type="text" name="template_code_path" value="{{ settings.template_code_path }}" placeholder="/path/to/silverfin-templates or C:\Users\...\templates">
+                {% if template_path_status %}
+                {% if template_path_status.startswith('ok:') %}
+                <div style="margin-top: 10px; padding: 10px 12px; background: var(--success-bg); border: 1px solid #bbf7d0; border-radius: 6px; font-size: 0.85em; color: #166534; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 1.1em;">✓</span>
+                    <div>
+                        <strong>Path resolved</strong> — {{ template_path_status.split(':')[1] }} .liquid files found. AI will use template code for analysis.
+                    </div>
+                </div>
+                {% elif template_path_status == 'error' %}
+                <div style="margin-top: 10px; padding: 10px 12px; background: var(--danger-bg); border: 1px solid #fecaca; border-radius: 6px; font-size: 0.85em; color: #991b1b; display: flex; align-items: center; gap: 6px;">
+                    <span style="font-size: 1.1em;">✕</span>
+                    <div>
+                        <strong>Path not found.</strong> Make sure this folder is accessible. If using a local path like /Users/.../Desktop/..., verify the folder name is correct.
+                    </div>
+                </div>
+                {% endif %}
+                {% endif %}
+                <div class="hint">
+                    Local folder containing your Silverfin template files (.liquid, .yml, etc.).
+                    When set, the AI will search this folder for the relevant template code before generating analyses and draft responses — so it can verify the actual behaviour instead of relying only on client descriptions.
+                    Leave blank if not available.
+                </div>
+            </div>
+
+            <div class="info-box">
+                <strong>How AI costs work</strong>
+                <p>
+                    Each ticket analysis uses ~$0.01–0.05 of Claude API credits.
+                    For 50 tickets/day, expect ~$1–2.50/day.
+                    You can track usage at <a href="https://console.anthropic.com/settings/usage" target="_blank">console.anthropic.com</a>.
+                </p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- JIRA SETTINGS -->
+    <div class="settings-section" style="grid-column: 1 / -1;">
+        <h3>Jira Integration</h3>
+        <p style="color: var(--text-muted); font-size: 0.85em; margin: -12px 0 16px 0; line-height: 1.5;">
+            Connect to Jira to create and link tickets directly from Freshdesk analyses.
+            Bugs, feature requests, and client requests are automatically mapped to Jira issue types.
+        </p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div class="form-group">
+                <label>Jira Domain</label>
+                <input type="text" name="jira_domain" value="{{ settings.jira_domain or '' }}" placeholder="yourcompany.atlassian.net">
+                <div class="hint">Your Atlassian domain (e.g. getsilverfin.atlassian.net)</div>
+            </div>
+            <div class="form-group">
+                <label>Jira Project Key</label>
+                <input type="text" name="jira_project" value="{{ settings.jira_project or '' }}" placeholder="LUX">
+                <div class="hint">The Jira project key where tickets will be created (e.g. LUX)</div>
+            </div>
+            <div class="form-group">
+                <label>Jira Email</label>
+                <input type="email" name="jira_email" value="{{ settings.jira_email or '' }}" placeholder="you@company.com">
+                <div class="hint">The email associated with your Atlassian account</div>
+            </div>
+            <div class="form-group">
+                <label>Jira API Token</label>
+                <input type="password" name="jira_api_token" value="{{ settings.jira_api_token or '' }}" placeholder="Your Jira API token" id="jira-token">
+                <div class="hint">Generate at <a href="https://id.atlassian.com/manage-profile/security/api-tokens" target="_blank">id.atlassian.com</a></div>
+                <button type="button" class="btn btn-secondary btn-sm test-btn" onclick="testJira()">Test Connection</button>
+                <div class="test-result" id="jira-result"></div>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top: 28px; display: flex; gap: 12px;">
+        <button type="submit" class="btn btn-primary">Save All Settings</button>
+    </div>
+</form>
+
+<!-- KNOWLEDGE BASE SECTION -->
+<div id="knowledge-base">
+    <div class="page-header" style="margin-top: 48px;">
+        <h1>Knowledge Base</h1>
+        <p style="color: var(--text-muted); font-size: 0.95em; margin-top: 4px;">Add reference materials the AI should consult when analyzing tickets</p>
+    </div>
+
+    <!-- CUSTOM AI INSTRUCTIONS -->
+    <div class="ai-instructions-card">
+        <div class="ai-instructions-header">
+            <div class="ai-icon">AI</div>
+            <div>
+                <h3>Custom AI Instructions</h3>
+                <p>Add extra rules or context the AI should follow in every analysis and response</p>
+            </div>
+        </div>
+        <p class="ai-instructions-description">
+            Use this to add team-specific rules, client-specific context, or any extra instructions the AI should consider.
+            These are injected into every AI prompt — analysis, draft responses, decline responses, and deep analysis.
+            The core Silverfin/Luxembourg context and formatting rules are already built in, so only add what's specific to your needs.
+        </p>
+        <form method="POST" action="{{ url_for('settings') }}">
+            <input type="hidden" name="section" value="claude_project">
+            <div class="form-group">
+                <label style="font-size: 0.82em;">Additional Instructions</label>
+                <textarea name="claude_project_instructions" rows="5" placeholder="Add any extra context or rules here. Examples:&#10;&#10;- BDO Luxembourg uses a specific equity workflow, always mention CSSF requirements&#10;- For JTC clients, use formal English only&#10;- When mentioning tax deadlines, reference the Administration des Contributions Directes&#10;- Always check if the template is part of Annual Accounts or Corporate Tax workflow" style="font-size: 0.9em;">{{ claude_project_instructions or '' }}</textarea>
+                <div class="hint">These instructions are added to every AI call. Leave blank if the built-in rules are sufficient.</div>
+            </div>
+            <div class="ai-instructions-actions">
+                <button type="submit" class="btn btn-primary">Save Instructions</button>
+                {% if claude_project_instructions %}
+                <span class="instruction-status active">✓ Custom instructions active ({{ claude_project_instructions|length }} chars)</span>
+                {% else %}
+                <span class="instruction-status inactive">No custom instructions set — using built-in rules only</span>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <!-- Client Data Context -->
+    <div class="ai-instructions-card" style="margin-top: 20px;">
+        <div class="ai-instructions-header">
+            <div class="ai-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">📊</div>
+            <div>
+                <h3>Client Data Context (RICE Scoring Only)</h3>
+                <p>Real numbers about your clients and workflows — used exclusively for RICE scoring accuracy</p>
+            </div>
+        </div>
+        <p class="ai-instructions-description">
+            This data is used ONLY for RICE scoring (Reach, Impact, Confidence, Effort). It is NOT included in the analysis text, summary, or draft responses.
+            Update these numbers as your client base grows.
+        </p>
+        <form method="POST" action="{{ url_for('settings') }}">
+            <input type="hidden" name="section" value="client_context">
+            <div class="form-group">
+                <label style="font-size: 0.82em;">Client & Workflow Data</label>
+                <textarea name="client_context" rows="10" style="font-size: 0.9em;" placeholder="Describe your client base, workflows, and usage numbers...">{{ client_context or 'REAL CLIENT DATA for accurate RICE Reach scoring:\n- Total clients: 22\n- Total files across all clients: ~8,000\n- Annual Accounts workflow: used by ALL 22 clients (every client has this)\n- Working Papers (WP) workflow: used by ALL 22 clients (every client has at least WP + Annual Accounts)\n- Corporate Tax workflow: NOT widely used yet — only a small subset of clients\n- Legal Docs workflow: ~600 files use this workflow\n- Most clients have at least 2 active workflows: WP + Annual Accounts\n\nUse these numbers when scoring RICE Reach. For Annual Accounts or WP issues, Reach should be 8-10 since all clients use them. For Corporate Tax, Reach should be lower (3-5). For Legal Docs, moderate (5-6).' }}</textarea>
+                <div class="hint">This context is added to every AI analysis call to improve RICE scoring accuracy. Update as your client base changes.</div>
+            </div>
+            <div class="ai-instructions-actions">
+                <button type="submit" class="btn btn-primary">Save Client Data</button>
+                {% if client_context %}
+                <span class="instruction-status active">✓ Client data active ({{ client_context|length }} chars)</span>
+                {% else %}
+                <span class="instruction-status inactive">No client data set — AI will use generic estimates</span>
+                {% endif %}
+            </div>
+        </form>
+    </div>
+
+    <!-- Google Drive Integration -->
+    <div class="settings-section" style="grid-column: 1 / -1; margin-bottom: 24px;">
+        <form method="POST" action="{{ url_for('settings') }}">
+            <div class="section-header">
+                <h3>🔗 Google Workspace Integration</h3>
+                <p style="color: var(--muted); font-size: 0.85em; margin: 4px 0 16px 0;">
+                    Connect Google Drive to export reports to Sheets/Docs/Slides and use Drive files as AI knowledge base.
+                </p>
+            </div>
+            <input type="hidden" name="section" value="google_drive">
+
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label>Service Account JSON Key</label>
+                <textarea name="google_sa_json" rows="4" placeholder='Paste your Google service account JSON key here (the entire JSON content from the .json key file)...'
+                    style="font-family: monospace; font-size: 0.8em; width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); resize: vertical;">{{ google_sa_json or '' }}</textarea>
+                <small style="color: var(--muted); display: block; margin-top: 4px;">
+                    Create a service account in <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank">Google Cloud Console</a>,
+                    enable Drive, Sheets, Docs & Slides APIs, then download the JSON key.
+                </small>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div class="form-group">
+                    <label>Export Folder ID</label>
+                    <input type="text" name="google_export_folder" value="{{ google_export_folder or '' }}"
+                        placeholder="e.g. 1aBcDeFgHiJkLmNoPqRsTuVwXyZ"
+                        style="width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);">
+                    <small style="color: var(--muted); display: block; margin-top: 4px;">
+                        Folder where exports (Sheets, Docs, Slides) will be created. Share this folder with the service account email.
+                    </small>
+                </div>
+                <div class="form-group">
+                    <label>Knowledge Base Folder ID</label>
+                    <input type="text" name="google_kb_folder" value="{{ google_kb_folder or '' }}"
+                        placeholder="e.g. 1xYzAbCdEfGhIjKlMnOpQrStUv"
+                        style="width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);">
+                    <small style="color: var(--muted); display: block; margin-top: 4px;">
+                        Folder with past analyses, client feedback & template docs. The AI will use these as extra context during analysis.
+                    </small>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <button type="submit" class="save-btn">Save Google Settings</button>
+                <button type="button" class="save-btn" style="background: var(--muted);" onclick="testGoogleConnection()">Test Connection</button>
+                {% if google_sa_json %}
+                <span class="instruction-status active">✓ Google Drive connected</span>
+                {% else %}
+                <span class="instruction-status inactive">Not configured</span>
+                {% endif %}
+            </div>
+
+            <div id="google-test-result" style="margin-top: 12px; display: none; padding: 10px 14px; border-radius: 6px; font-size: 0.85em;"></div>
+        </form>
+    </div>
+
+    <!-- Notion Integration -->
+    <div class="settings-section" style="grid-column: 1 / -1; margin-bottom: 24px;">
+        <form method="POST" action="{{ url_for('settings') }}">
+            <div class="section-header">
+                <h3>📝 Notion Integration</h3>
+                <p style="color: var(--muted); font-size: 0.85em; margin: 4px 0 12px 0;">
+                    Export ticket analyses directly to Notion as rich pages. Takes 2 minutes to set up.
+                </p>
+            </div>
+            <input type="hidden" name="section" value="notion">
+
+            <!-- Simple step-by-step -->
+            <div style="background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 0.82em; color: var(--muted); line-height: 1.7;">
+                <strong style="color: var(--text);">Quick setup:</strong><br>
+                1. Go to <a href="https://www.notion.so/my-integrations" target="_blank" style="color:var(--primary);">notion.so/my-integrations</a> → <strong>New integration</strong> → copy the token<br>
+                2. Open your target Notion page → click <strong>•••</strong> → <strong>Connections</strong> → add your integration<br>
+                3. Copy the page ID from the URL (last part after the title)
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;">
+                <div class="form-group">
+                    <label>Integration Token</label>
+                    <input type="password" name="notion_token" value="{{ notion_token or '' }}"
+                        placeholder="ntn_..."
+                        style="width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: monospace; font-size: 0.85em;">
+                </div>
+                <div class="form-group">
+                    <label>Parent Page ID</label>
+                    <input type="text" name="notion_page_id" value="{{ notion_page_id or '' }}"
+                        placeholder="Paste page URL or ID"
+                        style="width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: monospace; font-size: 0.85em;">
+                    <small style="color: var(--muted); display: block; margin-top: 4px;">
+                        New analysis pages will be created inside this page.
+                    </small>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <button type="submit" class="save-btn">Save Notion Settings</button>
+                <button type="button" class="save-btn" style="background: var(--muted);" onclick="testNotionConnection()">Test Connection</button>
+                {% if notion_token %}
+                <span class="instruction-status active">✓ Notion connected</span>
+                {% else %}
+                <span class="instruction-status inactive">Not configured</span>
+                {% endif %}
+            </div>
+
+            <div id="notion-test-result" style="margin-top: 12px; display: none; padding: 10px 14px; border-radius: 6px; font-size: 0.85em;"></div>
+        </form>
+    </div>
+
+    <!-- Add new entry -->
+    <div class="add-entry-card">
+        <h3>Add New Entry</h3>
+        <form method="POST" action="{{ url_for('kb_add') }}" enctype="multipart/form-data">
+
+            <!-- Entry type selector -->
+            <div class="form-group">
+                <label>Type of Entry</label>
+                <div class="type-options">
+                    <label class="type-option">
+                        <input type="radio" name="entry_type" value="file" checked onchange="toggleEntryType(this.value)">
+                        Upload File
+                    </label>
+                    <label class="type-option">
+                        <input type="radio" name="entry_type" value="url" onchange="toggleEntryType(this.value)">
+                        Website Link
+                    </label>
+                    <label class="type-option">
+                        <input type="radio" name="entry_type" value="text" onchange="toggleEntryType(this.value)">
+                        Plain Text
+                    </label>
+                </div>
+            </div>
+
+            <div class="two-column-grid">
+                <div class="form-group">
+                    <label>Category</label>
+                    <select name="category" required>
+                        <option value="">-- Select Category --</option>
+                        {% for cat in knowledge_categories %}
+                        <option value="{{ cat }}">{{ cat }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Title</label>
+                    <input type="text" name="title" required placeholder="e.g. Luxembourg VAT Rules 2024">
+                </div>
+            </div>
+
+            <!-- FILE upload field -->
+            <div id="field-file" class="form-group">
+                <label>Upload Document</label>
+                <input type="file" name="file" accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md" class="file-input-custom">
+                <div class="hint">Supported: PDF, Word (.docx), Excel (.xlsx), CSV, Text files. The AI will read the content automatically.</div>
+            </div>
+
+            <!-- URL field -->
+            <div id="field-url" class="form-group" style="display: none;">
+                <label>Website URL</label>
+                <input type="url" name="url" placeholder="https://example.com/accounting-rules">
+                <div class="hint">Link to reference material. The AI will see this URL when drafting responses.</div>
+            </div>
+
+            <!-- Content/notes -->
+            <div class="form-group">
+                <label id="content-label">Notes (optional)</label>
+                <textarea name="content" id="content-field" placeholder="Optional notes about this document..." style="min-height: 80px;"></textarea>
+                <div class="hint" id="content-hint">Add any extra context or notes for the AI about this entry.</div>
+            </div>
+
+            <button type="submit" class="btn btn-success">Add Entry</button>
+        </form>
+    </div>
+
+    <!-- Existing entries grouped by category -->
+    {% set ns = namespace(has_entries=false) %}
+    {% for entry in kb_entries %}{% if loop.first %}{% set ns.has_entries = true %}{% endif %}{% endfor %}
+
+    {% if not ns.has_entries %}
+    <div class="empty-state">
+        <p style="font-size: 1.1em; font-weight: 500; margin-bottom: 8px;">No knowledge base entries yet.</p>
+        <p>Upload documents, add website links, or type reference text to help the AI give accurate responses.</p>
+    </div>
+    {% else %}
+    {% set current_cat = namespace(value='') %}
+    {% for entry in kb_entries %}
+        {% if entry.category != current_cat.value %}
+            {% if current_cat.value %}
+            </div><!-- close previous category card -->
+            {% endif %}
+            {% set current_cat.value = entry.category %}
+            <div class="kb-card">
+                <h3>
+                    <span class="category-badge">{{ entry.category }}</span>
+                </h3>
+        {% endif %}
+
+        <div class="kb-entry">
+            <div class="kb-entry-header">
+                <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+                        <span class="kb-entry-title">{{ entry.title }}</span>
+                        {% if entry.entry_type == 'file' %}
+                        <span class="kb-entry-type-badge file">FILE: {{ entry.file_name or 'uploaded' }}</span>
+                        {% elif entry.entry_type == 'url' %}
+                        <span class="kb-entry-type-badge url">LINK</span>
+                        {% else %}
+                        <span class="kb-entry-type-badge text">TEXT</span>
+                        {% endif %}
+                    </div>
+                    {% if entry.entry_type == 'url' and entry.url %}
+                    <a href="{{ entry.url }}" target="_blank" class="kb-entry-url">{{ entry.url[:80] }}{% if entry.url|length > 80 %}...{% endif %}</a>
+                    {% endif %}
+                    {% if entry.content %}
+                    <div class="kb-entry-content">{{ entry.content[:300] }}{% if entry.content|length > 300 %}...{% endif %}</div>
+                    {% endif %}
+                </div>
+                <div class="kb-entry-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEdit({{ entry.id }})">Edit</button>
+                    <form method="POST" action="{{ url_for('kb_delete', entry_id=entry.id) }}" style="margin: 0;" onsubmit="return confirm('Delete this entry?');">
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Hidden edit form -->
+            <div id="edit-{{ entry.id }}" class="kb-entry-edit-form">
+                <form method="POST" action="{{ url_for('kb_edit', entry_id=entry.id) }}" enctype="multipart/form-data">
+                    <div class="two-column-grid">
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label>Category</label>
+                            <select name="category" required>
+                                {% for cat in knowledge_categories %}
+                                <option value="{{ cat }}" {% if cat == entry.category %}selected{% endif %}>{{ cat }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 12px;">
+                            <label>Title</label>
+                            <input type="text" name="title" value="{{ entry.title }}" required>
+                        </div>
+                    </div>
+                    {% if entry.entry_type == 'url' %}
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>URL</label>
+                        <input type="url" name="url" value="{{ entry.url }}">
+                    </div>
+                    {% endif %}
+                    {% if entry.entry_type == 'file' %}
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>Replace File (optional)</label>
+                        <input type="file" name="file" accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md" class="file-input-custom">
+                        <div class="hint">Leave empty to keep the current file ({{ entry.file_name or 'uploaded file' }})</div>
+                    </div>
+                    {% endif %}
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label>{% if entry.entry_type == 'text' %}Content{% else %}Notes{% endif %}</label>
+                        <textarea name="content" style="min-height: 80px;">{{ entry.content }}</textarea>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="toggleEdit({{ entry.id }})">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        {% if loop.last %}
+        </div><!-- close last category card -->
+        {% endif %}
+    {% endfor %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Show/hide custom country input
+document.querySelector('select[name="freshdesk_country"]').addEventListener('change', function() {
+    document.getElementById('custom-country-group').style.display = this.value === 'other' ? 'block' : 'none';
+});
+
+function showResult(id, ok, msg) {
+    const el = document.getElementById(id);
+    el.style.display = 'block';
+    el.className = 'test-result ' + (ok ? 'success' : 'error');
+    el.textContent = ok ? msg : 'Error: ' + msg;
+}
+
+function testFreshdesk() {
+    const btn = event.target;
+    btn.textContent = 'Testing...';
+    btn.disabled = true;
+    const key = document.querySelector('input[name="freshdesk_api_key"]').value;
+    const domain = document.querySelector('input[name="freshdesk_domain"]').value;
+    fetch('/api/test-freshdesk', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({api_key: key, domain: domain})
+    })
+        .then(r => r.json())
+        .then(d => { showResult('fd-result', d.ok, d.message); btn.textContent = 'Test Connection'; btn.disabled = false; })
+        .catch(e => { showResult('fd-result', false, e.message); btn.textContent = 'Test Connection'; btn.disabled = false; });
+}
+
+function testAnthropic() {
+    const btn = event.target;
+    btn.textContent = 'Testing...';
+    btn.disabled = true;
+    const key = document.querySelector('input[name="anthropic_api_key"]').value;
+    fetch('/api/test-anthropic', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({api_key: key})
+    })
+        .then(r => r.json())
+        .then(d => { showResult('ai-result', d.ok, d.message); btn.textContent = 'Test Connection'; btn.disabled = false; })
+        .catch(e => { showResult('ai-result', false, e.message); btn.textContent = 'Test Connection'; btn.disabled = false; });
+}
+
+function toggleEdit(id) {
+    const el = document.getElementById('edit-' + id);
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleEntryType(type) {
+    document.getElementById('field-file').style.display = type === 'file' ? 'block' : 'none';
+    document.getElementById('field-url').style.display = type === 'url' ? 'block' : 'none';
+
+    const label = document.getElementById('content-label');
+    const field = document.getElementById('content-field');
+    const hint = document.getElementById('content-hint');
+
+    if (type === 'text') {
+        label.textContent = 'Content';
+        field.placeholder = 'Enter the knowledge content here. Be specific — the AI will use this verbatim as reference material.';
+        field.style.minHeight = '120px';
+        field.required = true;
+        hint.textContent = 'The AI will reference this text when drafting responses.';
+    } else if (type === 'url') {
+        label.textContent = 'Notes about this link (optional)';
+        field.placeholder = 'Describe what this link contains so the AI knows when to reference it...';
+        field.style.minHeight = '80px';
+        field.required = false;
+        hint.textContent = 'Help the AI understand what this website contains.';
+    } else {
+        label.textContent = 'Notes (optional)';
+        field.placeholder = 'Optional notes about this document...';
+        field.style.minHeight = '80px';
+        field.required = false;
+        hint.textContent = 'Add any extra context or notes for the AI about this file.';
+    }
+
+    // Highlight selected type
+    document.querySelectorAll('.type-option').forEach(el => {
+        el.style.borderColor = 'var(--border)';
+        el.style.background = 'var(--card)';
+    });
+    const checked = document.querySelector('input[name="entry_type"]:checked');
+    if (checked) {
+        checked.closest('.type-option').style.borderColor = 'var(--primary)';
+        checked.closest('.type-option').style.background = 'var(--primary-bg)';
+    }
+}
+
+// Notion connection test
+function testNotionConnection() {
+    const resultDiv = document.getElementById('notion-test-result');
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#f0f4ff';
+    resultDiv.style.color = '#334155';
+    resultDiv.textContent = 'Testing connection...';
+
+    fetch('/notion-test-connection', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                resultDiv.style.background = '#ecfdf5';
+                resultDiv.style.color = '#065f46';
+                let msg = `✓ Connected to ${data.workspace}`;
+                if (data.page_title) msg += ` — Page: "${data.page_title}"`;
+                resultDiv.textContent = msg;
+            } else {
+                resultDiv.style.background = '#fef2f2';
+                resultDiv.style.color = '#991b1b';
+                resultDiv.textContent = `✗ ${data.error}`;
+            }
+        })
+        .catch(err => {
+            resultDiv.style.background = '#fef2f2';
+            resultDiv.style.color = '#991b1b';
+            resultDiv.textContent = `✗ Error: ${err.message}`;
+        });
+}
+
+function testJira() {
+    const btn = event.target;
+    btn.textContent = 'Testing...';
+    btn.disabled = true;
+    const domain = document.querySelector('input[name="jira_domain"]').value;
+    const email = document.querySelector('input[name="jira_email"]').value;
+    const token = document.querySelector('input[name="jira_api_token"]').value;
+    const project = document.querySelector('input[name="jira_project"]').value;
+    fetch('/api/test-jira', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({domain: domain, email: email, token: token, project: project})
+    })
+        .then(r => r.json())
+        .then(d => { showResult('jira-result', d.ok, d.message); btn.textContent = 'Test Connection'; btn.disabled = false; })
+        .catch(e => { showResult('jira-result', false, e.message); btn.textContent = 'Test Connection'; btn.disabled = false; });
+}
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', function() {
+    const checked = document.querySelector('input[name="entry_type"]:checked');
+    if (checked) toggleEntryType(checked.value);
+});
+
+// Google Drive connection test
+function testGoogleConnection() {
+    const resultDiv = document.getElementById('google-test-result');
+    resultDiv.style.display = 'block';
+    resultDiv.style.background = '#f0f4ff';
+    resultDiv.style.color = '#334155';
+    resultDiv.textContent = 'Testing connection...';
+
+    fetch('/google-test-connection', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) {
+                resultDiv.style.background = '#ecfdf5';
+                resultDiv.style.color = '#065f46';
+                let msg = `✓ Connected as ${data.email}`;
+                if (data.export_folder) msg += ` | Export folder: ${data.export_folder}`;
+                if (data.kb_folder) msg += ` | KB folder: ${data.kb_folder}`;
+                if (data.kb_files !== undefined) msg += ` | ${data.kb_files} KB files found`;
+                resultDiv.textContent = msg;
+            } else {
+                resultDiv.style.background = '#fef2f2';
+                resultDiv.style.color = '#991b1b';
+                resultDiv.textContent = `✗ ${data.error}`;
+            }
+        })
+        .catch(err => {
+            resultDiv.style.background = '#fef2f2';
+            resultDiv.style.color = '#991b1b';
+            resultDiv.textContent = `✗ Error: ${err.message}`;
+        });
+}
+</script>
+{% endblock %}

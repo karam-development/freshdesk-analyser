@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block title %}Agents — Freshdesk AI Analyzer{% endblock %}
+{% block page_class %}page-wide{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Agent Dashboard</h1>
+    <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:0.82em;color:var(--text-muted);">Last {{ days }} days</span>
+        <a href="?days=1" class="btn btn-sm {% if days == 1 %}btn-primary{% else %}btn-secondary{% endif %}">1d</a>
+        <a href="?days=7" class="btn btn-sm {% if days == 7 %}btn-primary{% else %}btn-secondary{% endif %}">7d</a>
+        <a href="?days=30" class="btn btn-sm {% if days == 30 %}btn-primary{% else %}btn-secondary{% endif %}">30d</a>
+    </div>
+</div>
+
+<!-- ── Cost Summary Stats ── -->
+<div class="stats">
+    <div class="stat primary">
+        <div class="label">Total API Cost</div>
+        <div class="value">${{ "%.4f"|format(total_cost) }}</div>
+    </div>
+    <div class="stat info">
+        <div class="label">Total Calls</div>
+        <div class="value">{{ total_calls }}</div>
+    </div>
+    <div class="stat success">
+        <div class="label">Success Rate</div>
+        <div class="value">{{ "%.0f"|format(success_rate) }}%</div>
+    </div>
+    <div class="stat warning">
+        <div class="label">Total Tokens</div>
+        <div class="value">{{ "{:,}".format(total_tokens) }}</div>
+    </div>
+    <div class="stat">
+        <div class="label">Lessons Learned</div>
+        <div class="value">{{ lessons|length }}</div>
+    </div>
+</div>
+
+<!-- ── Cost by Agent ── -->
+<div class="detail-grid" style="margin-bottom:24px;">
+    <div class="card">
+        <h3 style="font-size:0.95em;font-weight:700;margin-bottom:14px;">Cost by Agent</h3>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Agent</th>
+                        <th>Calls</th>
+                        <th>Input Tokens</th>
+                        <th>Output Tokens</th>
+                        <th>Cost</th>
+                        <th>Avg Duration</th>
+                        <th>Success</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in cost_summary %}
+                    <tr>
+                        <td><strong>{{ row.agent_name }}</strong></td>
+                        <td>{{ row.calls }}</td>
+                        <td>{{ "{:,}".format(row.total_input_tokens|int) }}</td>
+                        <td>{{ "{:,}".format(row.total_output_tokens|int) }}</td>
+                        <td>${{ "%.4f"|format(row.total_cost or 0) }}</td>
+                        <td>{{ "%.0f"|format(row.avg_duration_ms or 0) }}ms</td>
+                        <td>
+                            {% set pct = (row.successes / row.calls * 100) if row.calls > 0 else 0 %}
+                            <span style="color:{% if pct >= 95 %}var(--success){% elif pct >= 80 %}var(--warning){% else %}var(--danger){% endif %};">
+                                {{ "%.0f"|format(pct) }}%
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    {% if not cost_summary %}
+                    <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No agent activity in the last {{ days }} days.</td></tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- ── Agent Pipeline Overview ── -->
+    <div class="card">
+        <h3 style="font-size:0.95em;font-weight:700;margin-bottom:14px;">Pipeline Architecture</h3>
+        <div style="font-size:0.85em;line-height:1.7;color:var(--text-secondary);">
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div style="padding:8px 12px;background:var(--primary-bg);border-radius:6px;border-left:3px solid var(--primary);">
+                    <strong>1. KB Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Haiku)</span><br>
+                    Reads full knowledge base, extracts relevant accounts, validates accounting feasibility
+                </div>
+                <div style="padding:8px 12px;background:var(--info-bg);border-radius:6px;border-left:3px solid var(--info);">
+                    <strong>2. Code Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Haiku)</span><br>
+                    Analyzes template code, finds reference patterns, assesses technical feasibility
+                </div>
+                <div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;border-left:3px solid var(--success);">
+                    <strong>3. Research Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Haiku)</span><br>
+                    Searches similar past tickets, synthesizes lessons learned
+                </div>
+                <div style="padding:8px 12px;background:var(--warning-bg);border-radius:6px;border-left:3px solid var(--warning);">
+                    <strong>4. Main Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Sonnet)</span><br>
+                    Analysis, draft responses, PRD generation — uses all agent briefs
+                </div>
+                <div style="padding:8px 12px;background:#fff1f2;border-radius:6px;border-left:3px solid var(--danger);">
+                    <strong>5. QA Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Haiku)</span><br>
+                    Validates output against rules, flags blind agreement and KB inconsistencies
+                </div>
+                <div style="padding:8px 12px;background:#faf5ff;border-radius:6px;border-left:3px solid #7c3aed;">
+                    <strong>6. Learning Agent</strong> <span style="color:var(--text-muted);font-size:0.85em;">(Haiku)</span><br>
+                    Extracts reusable lessons from PO edits — feeds back into Research Agent
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ── Lessons Learned ── -->
+<div class="card" style="margin-bottom:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h3 style="font-size:0.95em;font-weight:700;">Lessons Learned</h3>
+        <span style="font-size:0.78em;color:var(--text-muted);">Extracted from PO edits — used by Research Agent</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Category</th>
+                    <th>Lesson</th>
+                    <th>Template</th>
+                    <th>Importance</th>
+                    <th>Applies To</th>
+                    <th>Source Ticket</th>
+                    <th>Rating</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lesson in lessons %}
+                <tr id="lesson-{{ lesson.id }}">
+                    <td>
+                        <span class="badge" style="background:
+                            {% if lesson.category == 'accounting' %}#dbeafe{% elif lesson.category == 'terminology' %}#ede9fe{% elif lesson.category == 'feasibility' %}#fee2e2{% elif lesson.category == 'tone' %}#fef3c7{% elif lesson.category == 'structure' %}#d1fae5{% elif lesson.category == 'logic' %}#fce7f3{% elif lesson.category == 'pattern' %}#e0e7ff{% elif lesson.category == 'wording' %}#ccfbf1{% elif lesson.category == 'validation' %}#fff1f2{% else %}#f3f4f6{% endif %};
+                            color:var(--text);">
+                            {{ lesson.category }}
+                        </span>
+                    </td>
+                    <td style="max-width:400px;font-size:0.88em;">{{ lesson.lesson }}</td>
+                    <td class="truncate-md">{{ lesson.template_name or '—' }}</td>
+                    <td>
+                        <span class="badge {% if lesson.importance == 'high' %}badge-high{% elif lesson.importance == 'medium' %}badge-medium{% else %}badge-low{% endif %}">
+                            {{ lesson.importance }}
+                        </span>
+                    </td>
+                    <td>{{ lesson.applies_to or 'all' }}</td>
+                    <td>
+                        {% if lesson.source_ticket_id %}
+                        <a href="{{ url_for('ticket_detail', ticket_id=lesson.source_ticket_id) }}" style="color:var(--primary);text-decoration:none;">
+                            #{{ lesson.source_ticket_id }}
+                        </a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        <span id="rating-{{ lesson.id }}" style="font-weight:600;
+                            {% if lesson.rating > 0 %}color:var(--success);{% elif lesson.rating < 0 %}color:var(--danger);{% else %}color:var(--text-muted);{% endif %}">
+                            {{ lesson.rating or 0 }}
+                        </span>
+                    </td>
+                    <td style="white-space:nowrap;">
+                        <button onclick="rateLesson({{ lesson.id }}, 1)" class="btn btn-sm btn-secondary" title="Useful" style="padding:3px 8px;">👍</button>
+                        <button onclick="rateLesson({{ lesson.id }}, -1)" class="btn btn-sm btn-secondary" title="Not useful" style="padding:3px 8px;">👎</button>
+                        <button onclick="toggleLesson({{ lesson.id }})" class="btn btn-sm btn-danger" title="Deactivate" style="padding:3px 8px;">✕</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not lessons %}
+                <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px;">
+                    No lessons learned yet. Lessons are extracted when the PO edits AI-generated responses.
+                </td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ── Recent Agent Logs ── -->
+<div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h3 style="font-size:0.95em;font-weight:700;">Recent Agent Activity</h3>
+        <span style="font-size:0.78em;color:var(--text-muted);">Last {{ logs|length }} executions</span>
+    </div>
+    <div class="table-wrap" style="max-height:500px;overflow-y:auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Ticket</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
+                    <th>Cost</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td><strong>{{ log.agent_name }}</strong></td>
+                    <td>
+                        {% if log.ticket_id %}
+                        <a href="{{ url_for('ticket_detail', ticket_id=log.ticket_id) }}" style="color:var(--primary);text-decoration:none;">
+                            #{{ log.ticket_id }}
+                        </a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>{{ "{:,}".format(log.input_tokens or 0) }}</td>
+                    <td>{{ "{:,}".format(log.output_tokens or 0) }}</td>
+                    <td>${{ "%.5f"|format(log.estimated_cost or 0) }}</td>
+                    <td>{{ "%.0f"|format(log.duration_ms or 0) }}ms</td>
+                    <td>
+                        {% if log.success %}
+                        <span style="color:var(--success);font-weight:600;">OK</span>
+                        {% else %}
+                        <span style="color:var(--danger);font-weight:600;" title="{{ log.error or '' }}">FAIL</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:0.82em;color:var(--text-muted);white-space:nowrap;">{{ log.created_at[:16] if log.created_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not logs %}
+                <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px;">No agent activity recorded yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function rateLesson(id, delta) {
+    fetch('/agents/lesson/' + id + '/rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({delta: delta})
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            const el = document.getElementById('rating-' + id);
+            el.textContent = data.rating;
+            el.style.color = data.rating > 0 ? 'var(--success)' : data.rating < 0 ? 'var(--danger)' : 'var(--text-muted)';
+        }
+    });
+}
+
+function toggleLesson(id) {
+    if (!confirm('Deactivate this lesson? It will no longer be used by the Research Agent.')) return;
+    fetch('/agents/lesson/' + id + '/toggle', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            const row = document.getElementById('lesson-' + id);
+            if (row) row.style.opacity = '0.4';
+        }
+    });
+}
+</script>
+{% endblock %}

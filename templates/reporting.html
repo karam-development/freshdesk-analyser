@@ -1,0 +1,993 @@
+{% extends "base.html" %}
+{% block title %}Reporting - Freshdesk AI Analyzer{% endblock %}
+
+{% block head %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+    /* ── Page Layout ── */
+    .page-header {
+        margin-bottom: 32px;
+    }
+
+    /* ── Filter Section ── */
+    .filter-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 28px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .filter-card h3 {
+        font-size: 0.9em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 16px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .filter-controls {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .filter-group label {
+        font-size: 0.75em;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .filter-group select,
+    .filter-group input {
+        padding: 8px 12px;
+        font-size: 0.9em;
+        min-width: 160px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--card);
+        color: var(--text);
+        transition: all 0.2s;
+    }
+
+    .filter-group select:focus,
+    .filter-group input:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px var(--primary-bg);
+    }
+
+    .filter-actions {
+        display: flex;
+        gap: 8px;
+    }
+
+    /* ── Metric Cards ── */
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+
+    .metric-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+        transition: all 0.2s;
+    }
+
+    .metric-card:hover {
+        border-color: var(--primary);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .metric-label {
+        font-size: 0.75em;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 8px;
+    }
+
+    .metric-value {
+        font-size: 2.2em;
+        font-weight: 700;
+        line-height: 1;
+        margin-bottom: 6px;
+    }
+
+    .metric-subtext {
+        font-size: 0.82em;
+        color: var(--text-muted);
+        margin-top: 4px;
+    }
+
+    /* ── Charts Grid ── */
+    .charts-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 28px;
+    }
+
+    .chart-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .chart-card h3 {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .chart-card canvas {
+        max-height: 300px;
+    }
+
+    .chart-card.full-width {
+        grid-column: 1 / -1;
+    }
+
+    /* ── Export Modal ── */
+    .export-section-label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        font-size: 0.85em;
+        padding: 6px 10px;
+        border-radius: 6px;
+        transition: background 0.15s;
+    }
+    .export-section-label:hover { background: #f8f9fb; }
+    .export-section-label input { accent-color: var(--primary); width: 15px; height: 15px; cursor: pointer; }
+
+    /* ── Period Toggle Buttons ── */
+    .period-toggle {
+        display: flex;
+        gap: 2px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 3px;
+    }
+
+    .period-btn {
+        padding: 5px 12px;
+        font-size: 0.78em;
+        font-weight: 600;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-muted);
+        cursor: pointer;
+        transition: all 0.15s;
+    }
+
+    .period-btn:hover {
+        color: var(--text);
+        background: var(--card);
+    }
+
+    .period-btn.active {
+        background: var(--primary);
+        color: #fff;
+        box-shadow: 0 1px 3px rgba(80, 70, 229, 0.3);
+    }
+
+    /* ── Table Section ── */
+    .table-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        margin-top: 28px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+    }
+
+    .table-card h3 {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .table-wrapper {
+        overflow-x: auto;
+    }
+
+    .client-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.88em;
+    }
+
+    .client-table th {
+        background: var(--bg-subtle);
+        padding: 12px 14px;
+        text-align: left;
+        font-weight: 600;
+        color: var(--text-muted);
+        border-bottom: 1px solid var(--border);
+        font-size: 0.8em;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+    }
+
+    .client-table td {
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        color: var(--text);
+    }
+
+    .client-table tr:hover {
+        background: var(--bg-subtle);
+    }
+
+    .table-rank {
+        font-weight: 600;
+        color: var(--primary);
+    }
+
+    .bar-container {
+        background: #e2e8f0;
+        border-radius: 4px;
+        height: 20px;
+        width: 100%;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .bar-fill {
+        background: var(--primary);
+        height: 100%;
+        min-width: 2px;
+        border-radius: 4px;
+        transition: width 0.3s ease;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+        .charts-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .filter-controls {
+            flex-direction: column;
+        }
+
+        .filter-group {
+            width: 100%;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            min-width: unset;
+            width: 100%;
+        }
+
+        .filter-actions {
+            width: 100%;
+        }
+
+        .filter-actions button,
+        .filter-actions a {
+            flex: 1;
+        }
+
+        .metrics-grid {
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        }
+    }
+
+    @media (max-width: 640px) {
+        .metrics-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .metric-value {
+            font-size: 1.8em;
+        }
+
+        .metric-card {
+            padding: 16px;
+        }
+
+        .chart-card {
+            padding: 16px;
+        }
+
+        .filter-card {
+            padding: 16px;
+        }
+
+        .table-card {
+            padding: 16px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- HEADER -->
+<div class="page-header" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
+    <div>
+        <h1>Reporting & Analytics</h1>
+        <p style="color: var(--text-muted); font-size: 0.88em; margin-top: 4px;">View ticket metrics, trends, and performance analytics across all clients and requesters</p>
+    </div>
+    <button type="button" onclick="openExportModal()" class="btn btn-primary" style="display:flex;align-items:center;gap:6px;flex-shrink:0;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Report
+    </button>
+</div>
+
+<!-- EXPORT MODAL -->
+<div id="export-modal" style="display:none;position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,0.5);backdrop-filter:blur(4px);justify-content:center;align-items:center;">
+    <div style="background:white;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.2);max-width:520px;width:90%;max-height:85vh;overflow-y:auto;padding:28px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h2 style="font-size:1.15em;font-weight:700;margin:0;">Export Report</h2>
+            <button onclick="closeExportModal()" style="background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:1.3em;padding:4px;">✕</button>
+        </div>
+
+        <p style="font-size:0.85em;color:var(--text-muted);margin-bottom:18px;">Choose which sections to include in your export. Current filters will be applied.</p>
+
+        <!-- Select All -->
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.88em;font-weight:600;margin-bottom:12px;padding:8px 0;border-bottom:1px solid var(--border);">
+            <input type="checkbox" id="export-select-all" checked onchange="toggleAllExportSections(this.checked)" style="accent-color:var(--primary);width:16px;height:16px;">
+            Select / Deselect All
+        </label>
+
+        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:20px;">
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="key_metrics" checked> Key Metrics (Total, Open, Resolved, SLA, RICE, Response Time)</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="status_chart" checked> Ticket Status Distribution</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="classification_chart" checked> Classification Breakdown</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="risk_chart" checked> Risk Level Distribution</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="resolution_time" checked> Time to Resolution</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="rice_chart" checked> RICE Score Distribution</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="po_decisions" checked> PO Decisions</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="timeline" checked> Tickets Over Time</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="first_response" checked> First Response Time</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="templates" checked> Most Reported Templates</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="workflows" checked> Tickets by Workflow</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="client_breakdown" checked> Client Breakdown Table</label>
+            <label class="export-section-label"><input type="checkbox" class="export-cb" value="sla_compliance" checked> SLA Compliance Summary</label>
+        </div>
+
+        <label style="font-size:0.85em;font-weight:600;color:var(--text);display:block;margin-bottom:6px;">Export Format</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s;" class="format-option" onclick="selectFormat(this)">
+                <input type="radio" name="export_format" value="pdf" checked style="accent-color:#dc2626;">
+                <span style="display:flex;align-items:center;gap:5px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span style="font-weight:600;font-size:0.85em;">PDF</span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s;" class="format-option" onclick="selectFormat(this)">
+                <input type="radio" name="export_format" value="pptx" style="accent-color:#c2410c;">
+                <span style="display:flex;align-items:center;gap:5px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c2410c" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    <span style="font-weight:600;font-size:0.85em;">PowerPoint</span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s;" class="format-option" onclick="selectFormat(this)">
+                <input type="radio" name="export_format" value="google_sheets" style="accent-color:#0f9d58;">
+                <span style="display:flex;align-items:center;gap:5px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0f9d58" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+                    <span style="font-weight:600;font-size:0.85em;">Google Sheets</span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s;" class="format-option" onclick="selectFormat(this)">
+                <input type="radio" name="export_format" value="google_slides" style="accent-color:#f4b400;">
+                <span style="display:flex;align-items:center;gap:5px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#f4b400" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    <span style="font-weight:600;font-size:0.85em;">Google Slides</span>
+                </span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;border:2px solid var(--border);border-radius:8px;cursor:pointer;transition:all 0.15s;" class="format-option" onclick="selectFormat(this)">
+                <input type="radio" name="export_format" value="google_tickets" style="accent-color:#4285f4;">
+                <span style="display:flex;align-items:center;gap:5px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4285f4" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+                    <span style="font-weight:600;font-size:0.85em;">All Tickets Sheet</span>
+                </span>
+            </label>
+        </div>
+
+        <button type="button" onclick="doExport()" id="export-btn" class="btn" style="background:var(--primary);color:white;font-weight:600;width:100%;padding:12px;font-size:0.95em;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:8px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export Report
+        </button>
+
+        <div id="export-status" style="display:none;margin-top:12px;padding:10px 14px;border-radius:7px;font-size:0.85em;font-weight:500;text-align:center;"></div>
+    </div>
+</div>
+
+<!-- FILTERS -->
+<div class="filter-card">
+    <h3>Filter Data</h3>
+    <form method="GET" action="{{ url_for('reporting') }}">
+        <div class="filter-controls">
+            <div class="filter-group">
+                <label>Client / Company</label>
+                <select name="client">
+                    <option value="">All Clients</option>
+                    {% for domain, name in companies %}
+                    <option value="{{ domain }}" {% if filters.client == domain %}selected{% endif %}>{{ name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>Requester</label>
+                <select name="requester">
+                    <option value="">All Requesters</option>
+                    {% for r in requesters %}
+                    <option value="{{ r }}" {% if filters.requester == r %}selected{% endif %}>{{ r }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="filter-group">
+                <label>From Date</label>
+                <input type="date" name="date_from" value="{{ filters.date_from }}">
+            </div>
+            <div class="filter-group">
+                <label>To Date</label>
+                <input type="date" name="date_to" value="{{ filters.date_to }}">
+            </div>
+            <div class="filter-actions">
+                <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+                <a href="{{ url_for('reporting') }}" class="btn btn-secondary btn-sm">Clear</a>
+            </div>
+        </div>
+    </form>
+</div>
+
+<!-- KEY METRICS -->
+<div class="metrics-grid">
+    <div class="metric-card">
+        <div class="metric-label">Total Tickets</div>
+        <div class="metric-value" style="color: var(--primary);">{{ total }}</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">Open / In Progress</div>
+        <div class="metric-value" style="color: var(--warning);">{{ open_count }}</div>
+        <div class="metric-subtext">{{ "%.0f"|format((open_count / total * 100) if total > 0 else 0) }}% of total</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">Resolved / Closed</div>
+        <div class="metric-value" style="color: var(--success);">{{ resolved_count }}</div>
+        <div class="metric-subtext">{{ "%.0f"|format((resolved_count / total * 100) if total > 0 else 0) }}% of total</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">Avg. Resolution Time</div>
+        <div class="metric-value" style="color: var(--info);">{{ avg_resolution_days }}d</div>
+        <div class="metric-subtext">{{ avg_resolution_hours }} hours average</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">Avg. RICE Score</div>
+        <div class="metric-value" style="color: #7c3aed;">{{ avg_rice }}</div>
+        <div class="metric-subtext">Prioritization metric</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">Avg. First Response</div>
+        <div class="metric-value" style="color: #06b6d4;">{{ avg_first_response_hours }}</div>
+        <div class="metric-subtext">hours average</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">SLA Compliance</div>
+        <div class="metric-value" style="color: #10b981;">{{ sla_resolution_pct }}%</div>
+        <div class="metric-subtext">resolved within 7 days</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">First Response SLA</div>
+        <div class="metric-value" style="color: #f59e0b;">{{ sla_response_pct }}%</div>
+        <div class="metric-subtext">responded within 24 hours</div>
+    </div>
+    <div class="metric-card">
+        <div class="metric-label">This Week</div>
+        <div class="metric-value" style="color: #8b5cf6;">{{ tickets_this_week }}</div>
+        <div class="metric-subtext">{{ resolved_this_week }} resolved</div>
+    </div>
+</div>
+
+<!-- CHARTS ROW 1: Status + Classification -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>Ticket Status Distribution</h3>
+        <canvas id="statusChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Classification Breakdown</h3>
+        <canvas id="classChart"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 2: Risk + Resolution Time -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>Risk Level Distribution</h3>
+        <canvas id="riskChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Time to Resolution</h3>
+        <canvas id="resTimeChart"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 3: RICE + PO Decisions -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>RICE Score Distribution</h3>
+        <canvas id="riceChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>PO Decisions</h3>
+        <canvas id="poChart"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 4: Tickets Over Time (full width) -->
+<div class="charts-grid">
+    <div class="chart-card full-width">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+            <h3 style="margin:0;">Tickets Created Over Time</h3>
+            <div class="period-toggle" style="display:flex;gap:4px;">
+                <button type="button" class="period-btn" data-period="week" onclick="setTimelinePeriod('week')">Week</button>
+                <button type="button" class="period-btn active" data-period="month" onclick="setTimelinePeriod('month')">Month</button>
+                <button type="button" class="period-btn" data-period="quarter" onclick="setTimelinePeriod('quarter')">Quarter</button>
+                <button type="button" class="period-btn" data-period="semester" onclick="setTimelinePeriod('semester')">Semester</button>
+                <button type="button" class="period-btn" data-period="year" onclick="setTimelinePeriod('year')">Year</button>
+            </div>
+        </div>
+        <canvas id="timelineChart" style="max-height: 250px;"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 5: Review Status + Client Breakdown -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>Review Status</h3>
+        <canvas id="reviewChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Top Clients by Ticket Volume</h3>
+        <canvas id="clientChart"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 6: First Response Time + Templates -->
+<div class="charts-grid">
+    <div class="chart-card">
+        <h3>First Response Time Distribution</h3>
+        <canvas id="firstResponseChart"></canvas>
+    </div>
+    <div class="chart-card">
+        <h3>Most Reported Templates</h3>
+        <canvas id="templateChart"></canvas>
+    </div>
+</div>
+
+<!-- CHARTS ROW 7: Workflow Breakdown (full width) -->
+<div class="charts-grid">
+    <div class="chart-card full-width">
+        <h3>Tickets by Workflow</h3>
+        <canvas id="workflowChart"></canvas>
+    </div>
+</div>
+
+<!-- CLIENT BREAKDOWN TABLE -->
+<div class="table-card">
+    <h3>Client / Company Breakdown</h3>
+    <div class="table-wrapper">
+        <table class="client-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Client</th>
+                    <th>Tickets</th>
+                    <th>Share</th>
+                    <th style="min-width: 200px;">Distribution</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for name, count in client_breakdown %}
+                <tr>
+                    <td><span class="table-rank">{{ loop.index }}</span></td>
+                    <td>{{ name }}</td>
+                    <td><strong>{{ count }}</strong></td>
+                    <td>{{ "%.1f"|format((count / total * 100) if total > 0 else 0) }}%</td>
+                    <td>
+                        <div class="bar-container">
+                            <div class="bar-fill" style="width: {{ (count / client_breakdown[0][1] * 100) if client_breakdown[0][1] > 0 else 0 }}%;"></div>
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" style="text-align: center; padding: 20px; color: var(--text-muted);">No client data available yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── Backfill Function ──
+// Backfill removed — new tickets capture SLA & template data automatically
+
+// ── Color Palettes ──
+const STATUS_COLORS = {
+    'Open': '#3b82f6', 'In Progress': '#6366f1', 'Pending': '#f59e0b',
+    'Pending Approval': '#eab308', 'Resolved': '#10b981', 'Closed': '#6b7280',
+    'Assign to 3L': '#8b5cf6', 'Waiting on Customer': '#f97316',
+    'Waiting on Third Party': '#ec4899', 'Unknown': '#94a3b8'
+};
+const RISK_COLORS = { 'low': '#22c55e', 'medium': '#f59e0b', 'high': '#ef4444', 'critical': '#991b1b' };
+const CLASS_COLORS = { 'bug': '#ef4444', 'feature_request': '#8b5cf6', 'how_to': '#3b82f6', 'account': '#14b8a6', 'billing': '#f59e0b', 'integration': '#ec4899', 'data': '#6366f1', 'other': '#94a3b8' };
+const PO_COLORS = { 'approved': '#22c55e', 'declined': '#ef4444', 'pending': '#94a3b8' };
+const REVIEW_COLORS = { 'Pending': '#f59e0b', 'Reviewed': '#3b82f6', 'Sent': '#22c55e', 'Rejected': '#ef4444' };
+const BAR_PALETTE = ['#5046e5','#3b82f6','#14b8a6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#6366f1','#06b6d4','#f97316','#84cc16','#a855f7','#e11d48','#0ea5e9'];
+
+const chartFont = { family: "DM Sans, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" };
+Chart.defaults.font.family = chartFont.family;
+Chart.defaults.font.size = 12;
+Chart.defaults.plugins.legend.labels.usePointStyle = true;
+
+// ── Helper ──
+function doughnut(id, labels, data, colorMap) {
+    const colors = labels.map((l, i) => colorMap[l] || BAR_PALETTE[i % BAR_PALETTE.length]);
+    new Chart(document.getElementById(id), {
+        type: 'doughnut',
+        data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }] },
+        options: { responsive: true, plugins: { legend: { position: 'right', labels: { padding: 12 } } } }
+    });
+}
+
+function barChart(id, labels, data, colors) {
+    new Chart(document.getElementById(id), {
+        type: 'bar',
+        data: { labels, datasets: [{ data, backgroundColor: colors || BAR_PALETTE.slice(0, labels.length), borderRadius: 6, maxBarThickness: 50 }] },
+        options: { responsive: true, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+    });
+}
+
+// ── Status Distribution ──
+const statusData = {{ status_dist | tojson }};
+doughnut('statusChart',
+    statusData.map(d => d.status || 'Unknown'),
+    statusData.map(d => d.count),
+    STATUS_COLORS
+);
+
+// ── Classification ──
+const classData = {{ class_dist | tojson }};
+doughnut('classChart',
+    classData.map(d => d.classification || 'other'),
+    classData.map(d => d.count),
+    CLASS_COLORS
+);
+
+// ── Risk ──
+const riskData = {{ risk_dist | tojson }};
+doughnut('riskChart',
+    riskData.map(d => d.risk_level || 'unknown'),
+    riskData.map(d => d.count),
+    RISK_COLORS
+);
+
+// ── Resolution Time ──
+const resBuckets = {{ res_buckets | tojson }};
+barChart('resTimeChart',
+    Object.keys(resBuckets),
+    Object.values(resBuckets),
+    ['#22c55e','#3b82f6','#6366f1','#f59e0b','#f97316','#ef4444']
+);
+
+// ── RICE Score ──
+const riceBuckets = {{ rice_buckets | tojson }};
+barChart('riceChart',
+    Object.keys(riceBuckets),
+    Object.values(riceBuckets),
+    ['#ef4444','#f59e0b','#eab308','#22c55e','#3b82f6']
+);
+
+// ── PO Decisions ──
+const poData = {{ po_dist | tojson }};
+doughnut('poChart',
+    poData.map(d => d.po_decision || 'pending'),
+    poData.map(d => d.count),
+    PO_COLORS
+);
+
+// ── Timeline with Period Toggle ──
+const rawDates = {{ ticket_dates | tojson }};
+let timelineChart = null;
+
+function getISOWeek(d) {
+    const date = new Date(d.getTime());
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+    const week1 = new Date(date.getFullYear(), 0, 4);
+    const weekNum = 1 + Math.round(((date - week1) / 86400000 - 3 + ((week1.getDay() + 6) % 7)) / 7);
+    return weekNum;
+}
+
+function groupDates(dates, period) {
+    const buckets = {};
+    dates.forEach(dateStr => {
+        const d = new Date(dateStr);
+        if (isNaN(d)) return;
+        let key;
+        const y = d.getFullYear();
+        const m = d.getMonth(); // 0-based
+        if (period === 'week') {
+            const w = getISOWeek(d);
+            key = y + '-W' + String(w).padStart(2, '0');
+        } else if (period === 'month') {
+            key = y + '-' + String(m + 1).padStart(2, '0');
+        } else if (period === 'quarter') {
+            const q = Math.floor(m / 3) + 1;
+            key = y + ' Q' + q;
+        } else if (period === 'semester') {
+            const s = m < 6 ? 'H1' : 'H2';
+            key = y + ' ' + s;
+        } else {
+            key = String(y);
+        }
+        buckets[key] = (buckets[key] || 0) + 1;
+    });
+    // Sort keys chronologically
+    const sorted = Object.keys(buckets).sort();
+    return { labels: sorted, data: sorted.map(k => buckets[k]) };
+}
+
+function setTimelinePeriod(period) {
+    // Update active button
+    document.querySelectorAll('.period-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.period === period);
+    });
+    // Regroup data
+    const grouped = groupDates(rawDates, period);
+    // Destroy old chart and create new one
+    if (timelineChart) timelineChart.destroy();
+    timelineChart = new Chart(document.getElementById('timelineChart'), {
+        type: 'line',
+        data: {
+            labels: grouped.labels,
+            datasets: [{
+                label: 'Tickets Created',
+                data: grouped.data,
+                borderColor: '#5046e5',
+                backgroundColor: 'rgba(80,70,229,0.1)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 4,
+                pointBackgroundColor: '#5046e5',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+}
+
+// Initialize with month view
+setTimelinePeriod('month');
+
+// ── Review Status ──
+const reviewData = {{ review_dist | tojson }};
+doughnut('reviewChart',
+    reviewData.map(d => d.review_status || 'Unknown'),
+    reviewData.map(d => d.count),
+    REVIEW_COLORS
+);
+
+// ── Client Breakdown Bar Chart ──
+const clientBreakdown = {{ client_breakdown | tojson }};
+barChart('clientChart',
+    clientBreakdown.map(d => d[0]),
+    clientBreakdown.map(d => d[1]),
+    BAR_PALETTE.slice(0, clientBreakdown.length)
+);
+
+// ── First Response Time ──
+const firstResponseBuckets = {{ first_response_buckets | tojson }};
+if (firstResponseBuckets && Object.keys(firstResponseBuckets).length > 0) {
+    barChart('firstResponseChart',
+        Object.keys(firstResponseBuckets),
+        Object.values(firstResponseBuckets),
+        ['#10b981','#3b82f6','#6366f1','#f59e0b','#f97316','#ef4444']
+    );
+} else {
+    document.getElementById('firstResponseChart').style.display = 'none';
+}
+
+// ── Most Reported Templates ──
+const templateBreakdown = {{ template_breakdown | tojson }};
+if (templateBreakdown && templateBreakdown.length > 0) {
+    new Chart(document.getElementById('templateChart'), {
+        type: 'bar',
+        data: {
+            labels: templateBreakdown.map(d => d[0]),
+            datasets: [{
+                data: templateBreakdown.map(d => d[1]),
+                backgroundColor: BAR_PALETTE.slice(0, templateBreakdown.length),
+                borderRadius: 6,
+                maxBarThickness: 50
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { x: { beginAtZero: true, ticks: { stepSize: 1 } } }
+        }
+    });
+} else {
+    document.getElementById('templateChart').style.display = 'none';
+}
+
+// ── Workflow Breakdown ──
+const workflowBreakdown = {{ workflow_breakdown | tojson }};
+if (workflowBreakdown && workflowBreakdown.length > 0) {
+    doughnut('workflowChart',
+        workflowBreakdown.map(d => d[0]),
+        workflowBreakdown.map(d => d[1]),
+        {}
+    );
+} else {
+    document.getElementById('workflowChart').style.display = 'none';
+}
+
+// ── Export Functions ──
+function openExportModal() {
+    const modal = document.getElementById('export-modal');
+    modal.style.display = 'flex';
+}
+function closeExportModal() {
+    document.getElementById('export-modal').style.display = 'none';
+}
+function toggleAllExportSections(checked) {
+    document.querySelectorAll('.export-cb').forEach(cb => cb.checked = checked);
+}
+
+function selectFormat(el) {
+    document.querySelectorAll('.format-option').forEach(opt => {
+        opt.style.borderColor = 'var(--border)';
+        opt.style.background = 'var(--card)';
+    });
+    el.style.borderColor = 'var(--primary)';
+    el.style.background = 'var(--primary-bg, #f0f0ff)';
+}
+// Initialize first option
+document.addEventListener('DOMContentLoaded', () => {
+    const first = document.querySelector('.format-option');
+    if (first) selectFormat(first);
+});
+
+function doExport() {
+    const format = document.querySelector('input[name="export_format"]:checked')?.value;
+    if (!format) { alert('Please select a format.'); return; }
+
+    const sections = [];
+    document.querySelectorAll('.export-cb:checked').forEach(cb => sections.push(cb.value));
+    if (sections.length === 0 && format !== 'google_tickets') { alert('Please select at least one section.'); return; }
+
+    if (format === 'pdf' || format === 'pptx') {
+        exportFile(format, sections);
+    } else {
+        exportGoogle(format, sections);
+    }
+}
+
+function exportFile(format, sections) {
+    const btn = document.getElementById('export-btn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></div> Generating...';
+
+    const statusEl = document.getElementById('export-status');
+    statusEl.style.display = 'none';
+
+    const params = new URLSearchParams(window.location.search);
+    params.set('format', format);
+    params.set('sections', sections.join(','));
+
+    fetch('/export-report?' + params.toString())
+    .then(resp => {
+        if (!resp.ok) return resp.json().then(d => { throw new Error(d.error || 'Export failed'); });
+        return resp.blob();
+    })
+    .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const date = new Date().toISOString().slice(0, 10);
+        a.download = 'BSO_LUX_Report_' + date + '.' + format;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'var(--success-bg)';
+        statusEl.style.color = '#065f46';
+        statusEl.textContent = 'Report downloaded successfully!';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+    })
+    .catch(err => {
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'var(--danger-bg)';
+        statusEl.style.color = '#991b1b';
+        statusEl.textContent = 'Error: ' + err.message;
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+    });
+}
+
+function exportGoogle(format, sections) {
+    const btn = document.getElementById('export-btn');
+    const orig = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<div style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin 0.8s linear infinite;display:inline-block;"></div> Creating in Google Drive...';
+
+    const statusEl = document.getElementById('export-status');
+    statusEl.style.display = 'block';
+    statusEl.style.background = '#e0f2fe';
+    statusEl.style.color = '#0c4a6e';
+    statusEl.textContent = 'Creating in Google Drive...';
+
+    const params = new URLSearchParams(window.location.search);
+    params.set('sections', sections.join(','));
+
+    let url;
+    if (format === 'google_sheets') url = '/google-export-report-sheets?' + params.toString();
+    else if (format === 'google_slides') url = '/google-export-report-slides?' + params.toString();
+    else if (format === 'google_tickets') url = '/google-export-tickets-sheets?' + params.toString();
+
+    window.open(url, '_blank');
+
+    setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = orig;
+        statusEl.style.display = 'block';
+        statusEl.style.background = 'var(--success-bg)';
+        statusEl.style.color = '#065f46';
+        statusEl.textContent = 'Exported to Google Drive — check the new tab!';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 4000);
+    }, 1500);
+}
+
+// Close modal on backdrop click
+document.getElementById('export-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeExportModal();
+});
+</script>
+{% endblock %}
