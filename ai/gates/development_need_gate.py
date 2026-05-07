@@ -55,6 +55,7 @@ def evaluate_development_need(
     evidence = context.get("evidence") or {}
     legal_status = context.get("legal_status", "")
     global_change_risk = context.get("global_change_risk", "")
+    existing_solution = context.get("existing_solution") or {}
     combined = ticket_summary.lower()
 
     # ── Priority 1 (evidence): existing workaround detected → support guidance ─
@@ -69,6 +70,21 @@ def evaluate_development_need(
             "reason": (
                 "Evidence confirms an existing workaround or setting covers the request; "
                 "support guidance is sufficient — no development needed."
+            ),
+        }
+
+    # ── Priority 1.5 (detector): existing setting identified in context ──────
+    # The existing_solution_detector found a concrete configuration option or
+    # setting that answers the request — explain it rather than developing anything.
+
+    if existing_solution.get("solution_type") == "existing_setting":
+        return {
+            "needs_development": False,
+            "development_type": "support_guidance",
+            "recommended_action": "explain_existing_setting",
+            "reason": (
+                "An existing setting or configuration option covers the request; "
+                "explain it to the client — no development needed."
             ),
         }
 
@@ -96,6 +112,22 @@ def evaluate_development_need(
             "reason": (
                 "Upstream gates confirm a client-specific preference with high "
                 "global-change risk; making the field editable is the solution."
+            ),
+        }
+
+    # ── Priority 3.5 (detector): existing_solution says make_editable ────────
+    # Safety net: if the existing_solution_detector returned make_editable but
+    # the upstream gates did not set client_preference + high global_change_risk,
+    # honour the detector's verdict here.
+
+    if existing_solution.get("solution_type") == "make_editable":
+        return {
+            "needs_development": True,
+            "development_type": "small_improvement",
+            "recommended_action": "make_editable",
+            "reason": (
+                "Existing solution detector identified client preference on correct "
+                "current behaviour; making the field editable is the right approach."
             ),
         }
 

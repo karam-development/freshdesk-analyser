@@ -181,6 +181,19 @@ def format_pm_decision_for_prompt(pm_decision: Optional[dict]) -> str:
             "field/text editable per-client instead of a global default change."
         )
 
+    if rec_action == "explain_existing_setting":
+        lines.append(
+            "  * recommended_action is explain_existing_setting — "
+            "an existing setting or configuration option already covers this request; "
+            "explain it to the client without suggesting development."
+        )
+
+    if rec_action in ("explain_workaround", "explain_existing_setting"):
+        lines.append(
+            "  * No development is needed — the solution already exists; "
+            "do NOT create a Jira or suggest any code change."
+        )
+
     decision_val = pm_decision.get("decision", "")
     if decision_val == "refuse_global_change":
         lines.append(

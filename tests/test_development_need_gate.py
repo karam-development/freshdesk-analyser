@@ -127,3 +127,72 @@ def test_product_standard_and_high_risk_triggers_make_editable():
     assert result["needs_development"] is True
     assert result["development_type"] == "small_improvement"
     assert result["recommended_action"] == "make_editable"
+
+
+# ── PR #16: existing_solution context tests ───────────────────────────────────
+
+def test_existing_solution_setting_triggers_explain_existing_setting():
+    """existing_solution.solution_type=existing_setting → explain_existing_setting (priority 1.5)."""
+    result = evaluate_development_need(
+        "Client asks how to configure the reconciliation note wording.",
+        decision_context={
+            "evidence": {},
+            "existing_solution": {"solution_type": "existing_setting"},
+        },
+    )
+    assert result["needs_development"] is False
+    assert result["development_type"] == "support_guidance"
+    assert result["recommended_action"] == "explain_existing_setting"
+
+
+def test_existing_solution_setting_beats_bug_keywords():
+    """existing_setting (priority 1.5) beats bug keyword fallback."""
+    result = evaluate_development_need(
+        "This seems wrong but there is an existing setting",
+        decision_context={
+            "evidence": {},
+            "existing_solution": {"solution_type": "existing_setting"},
+        },
+    )
+    assert result["recommended_action"] == "explain_existing_setting"
+
+
+def test_existing_solution_make_editable_triggers_make_editable():
+    """existing_solution.solution_type=make_editable → make_editable (priority 3.5)."""
+    result = evaluate_development_need(
+        "Client has a custom wording preference",
+        decision_context={
+            "evidence": {},
+            "existing_solution": {"solution_type": "make_editable"},
+        },
+    )
+    assert result["needs_development"] is True
+    assert result["development_type"] == "small_improvement"
+    assert result["recommended_action"] == "make_editable"
+
+
+def test_existing_solution_workaround_enrichment_triggers_explain_workaround():
+    """When enriched evidence sets mentions_existing_workaround=True,
+    the gate returns explain_workaround via priority 1."""
+    result = evaluate_development_need(
+        "Client question with no direct workaround keywords",
+        decision_context={
+            "evidence": {"mentions_existing_workaround": True},
+            "existing_solution": {"solution_type": "existing_workaround"},
+        },
+    )
+    assert result["needs_development"] is False
+    assert result["recommended_action"] == "explain_workaround"
+
+
+def test_existing_solution_unclear_does_not_change_normal_flow():
+    """existing_solution=unclear should not override normal keyword detection."""
+    result = evaluate_development_need(
+        "Client requests a new dropdown option to be added",
+        decision_context={
+            "evidence": {},
+            "existing_solution": {"solution_type": "unclear"},
+        },
+    )
+    # keyword detection: "new dropdown" → feature_request
+    assert result["development_type"] == "feature_request"
