@@ -5626,6 +5626,24 @@ def prepare_analysis(ticket_id):
         # Sanitize to remove any code Haiku may have slipped into its brief
         effective_code_ctx = strip_code_from_output(code_brief) if code_brief else ""
 
+        # ── PM Decision: inject constraints into analysis context ─────────────
+        _pm_dec_analysis: dict = load_pm_decision_from_ticket(ticket)
+        try:
+            from ai.pm_analysis_context import build_pm_analysis_prompt_block
+            _pm_analysis_block = build_pm_analysis_prompt_block(_pm_dec_analysis)
+            if _pm_analysis_block:
+                enhanced_kb = _pm_analysis_block + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: PM decision injected into analysis context "
+                    f"(decision={_pm_dec_analysis.get('decision')}, "
+                    f"mode={_pm_dec_analysis.get('recommended_action')})"
+                )
+        except Exception as _pm_analysis_err:
+            logger.warning(
+                f"PM analysis context injection failed for ticket {ticket_id}: "
+                f"{_pm_analysis_err}"
+            )
+
         # 3. Main PRD Agent
         prd_result = generate_prd_analysis(
             ticket["compiled_thread"], anthropic_key, lang,
@@ -5637,6 +5655,44 @@ def prepare_analysis(ticket_id):
             po_draft_response=current_draft,
             ticket_id=ticket_id,
         )
+
+        # ── PM analysis guard: warn on constraint violations (warning-only) ───
+        try:
+            from ai.pm_analysis_guard import apply_pm_analysis_guard
+            from ai.pm_guard_persistence import merge_pm_guard_warnings_into_qa_issues
+            _analysis_text = json.dumps(prd_result, ensure_ascii=False)
+            _, _analysis_warnings = apply_pm_analysis_guard(
+                _analysis_text, _pm_dec_analysis
+            )
+            if _analysis_warnings:
+                logger.warning(
+                    f"Ticket {ticket_id}: PM analysis guard warnings: "
+                    f"{_analysis_warnings}"
+                )
+                _wrapped_warnings = [
+                    {
+                        "raw": w,
+                        "code": "pm_analysis_guard",
+                        "severity": "medium",
+                        "title": "Analysis guard warning",
+                        "message": w,
+                    }
+                    for w in _analysis_warnings
+                ]
+                _existing_qa_raw = _row_get(ticket, "qa_issues", "[]") or "[]"
+                _merged_qa = merge_pm_guard_warnings_into_qa_issues(
+                    _existing_qa_raw, _wrapped_warnings
+                )
+                db.execute(
+                    "UPDATE tickets SET qa_issues = ? WHERE ticket_id = ?",
+                    (_merged_qa, ticket_id),
+                )
+                db.commit()
+        except Exception as _analysis_guard_err:
+            logger.warning(
+                f"PM analysis guard failed for ticket {ticket_id}: "
+                f"{_analysis_guard_err}"
+            )
 
         # 4. QA Agent with retry: validate the PRD output
         qa_result, _ = orchestrator.run_qa_with_retry(
