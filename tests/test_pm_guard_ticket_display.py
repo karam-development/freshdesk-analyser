@@ -126,18 +126,21 @@ def test_template_iterates_pm_guard_warnings():
 
 # ── app.py wiring checks ──────────────────────────────────────────────────────
 
-def test_app_uses_extract_pm_guard_warnings():
+def test_app_uses_collect_pm_guard_warnings_from_texts():
     app_path = Path(__file__).resolve().parents[1] / "app.py"
     source = app_path.read_text()
-    assert "extract_pm_guard_warnings" in source, \
-        "app.py must call extract_pm_guard_warnings in ticket_detail"
+    assert "collect_pm_guard_warnings_from_texts" in source, \
+        "app.py must use collect_pm_guard_warnings_from_texts in ticket_detail"
 
 
-def test_app_uses_categorize_pm_guard_warnings():
-    app_path = Path(__file__).resolve().parents[1] / "app.py"
-    source = app_path.read_text()
-    assert "categorize_pm_guard_warnings" in source, \
-        "app.py must call categorize_pm_guard_warnings in ticket_detail"
+def test_extract_and_categorize_available_via_helper():
+    """extract_pm_guard_warnings and categorize_pm_guard_warnings are
+    used inside collect_pm_guard_warnings_from_texts; verify they exist there."""
+    from ai.pm_guard_review import collect_pm_guard_warnings_from_texts
+    import inspect
+    src = inspect.getsource(collect_pm_guard_warnings_from_texts)
+    assert "extract_pm_guard_warnings" in src
+    assert "categorize_pm_guard_warnings" in src
 
 
 def test_app_sets_pm_guard_warnings_on_ticket_dict():

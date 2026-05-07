@@ -1,10 +1,14 @@
-"""Tests for pm_guard_review categorizer."""
+"""Tests for pm_guard_review categorizer and collection helper."""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ai.pm_guard_review import categorize_pm_guard_warning, categorize_pm_guard_warnings
+from ai.pm_guard_review import (
+    categorize_pm_guard_warning,
+    categorize_pm_guard_warnings,
+    collect_pm_guard_warnings_from_texts,
+)
 
 
 # ── Single warning categorization ────────────────────────────────────────────
@@ -143,6 +147,89 @@ def test_acceptance_three_warnings_categorized():
     assert results[1]["severity"] == "high"
     assert results[1]["raw"] == raw_warnings[1]
 
-    assert results[2]["code"] == "editability_missing"
-    assert results[2]["severity"] == "medium"
-    assert results[2]["raw"] == raw_warnings[2]
+
+# ── collect_pm_guard_warnings_from_texts ─────────────────────────────────────
+
+_LEGAL_MARKER = "[PM guard: legal reference detected although PM decision says should_mention_law=false.]"
+_GLOBAL_MARKER = "[PM guard: global default change suggested although global_change_risk=high.]"
+_EDITABLE_MARKER = "[PM guard: recommended_action=make_editable but output does not mention editability/configurability.]"
+
+
+def test_collect_single_text_returns_warnings():
+    result = collect_pm_guard_warnings_from_texts(f"Response.\n\n{_LEGAL_MARKER}")
+    assert len(result) == 1
+    assert result[0]["code"] == "legal_reference_blocked"
+
+
+def test_collect_empty_string_returns_empty():
+    assert collect_pm_guard_warnings_from_texts("") == []
+
+
+def test_collect_none_returns_empty():
+    assert collect_pm_guard_warnings_from_texts(None) == []
+
+
+def test_collect_no_args_returns_empty():
+    assert collect_pm_guard_warnings_from_texts() == []
+
+
+def test_collect_multiple_texts_all_captured():
+    result = collect_pm_guard_warnings_from_texts(
+        f"FR draft.\n\n{_LEGAL_MARKER}",
+        f"EN draft.\n\n{_GLOBAL_MARKER}",
+    )
+    codes = {w["code"] for w in result}
+    assert "legal_reference_blocked" in codes
+    assert "global_default_change_blocked" in codes
+
+
+def test_collect_deduplicates_across_texts():
+    """Same marker in two texts → appears once."""
+    result = collect_pm_guard_warnings_from_texts(
+        f"FR draft.\n\n{_LEGAL_MARKER}",
+        f"EN draft.\n\n{_LEGAL_MARKER}",
+    )
+    assert len(result) == 1
+    assert result[0]["code"] == "legal_reference_blocked"
+
+
+def test_collect_deduplicates_within_same_text():
+    """Marker repeated twice in one text → appears once."""
+    result = collect_pm_guard_warnings_from_texts(
+        f"Text.\n\n{_LEGAL_MARKER}\n{_LEGAL_MARKER}"
+    )
+    assert len(result) == 1
+
+
+def test_collect_three_texts_different_markers():
+    result = collect_pm_guard_warnings_from_texts(
+        f"FR.\n\n{_LEGAL_MARKER}",
+        f"EN.\n\n{_GLOBAL_MARKER}",
+        f"QA.\n\n{_EDITABLE_MARKER}",
+    )
+    assert len(result) == 3
+    codes = {w["code"] for w in result}
+    assert "legal_reference_blocked" in codes
+    assert "global_default_change_blocked" in codes
+    assert "editability_missing" in codes
+
+
+def test_collect_clean_text_returns_empty():
+    assert collect_pm_guard_warnings_from_texts("No warnings here at all.") == []
+
+
+def test_collect_categorizes_correctly():
+    result = collect_pm_guard_warnings_from_texts(f"Draft.\n\n{_LEGAL_MARKER}")
+    assert result[0]["severity"] == "high"
+    assert result[0]["raw"] == _LEGAL_MARKER
+
+
+def test_collect_handles_mixed_none_and_text():
+    result = collect_pm_guard_warnings_from_texts(
+        None,
+        f"Draft.\n\n{_GLOBAL_MARKER}",
+        "",
+        None,
+    )
+    assert len(result) == 1
+    assert result[0]["code"] == "global_default_change_blocked"

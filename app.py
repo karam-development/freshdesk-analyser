@@ -4099,17 +4099,12 @@ def ticket_detail(ticket_id):
 
     # ── Collect and categorize PM guard warnings for display ──────────────────
     try:
-        from ai.pm_decision_formatter import extract_pm_guard_warnings
-        from ai.pm_guard_review import categorize_pm_guard_warnings
-        _seen: set = set()
-        _raw_warnings: list = []
-        for _field in ("draft_response", "draft_response_en", "qa_issues"):
-            _text = ticket_dict.get(_field) or ""
-            for _w in extract_pm_guard_warnings(_text):
-                if _w not in _seen:
-                    _seen.add(_w)
-                    _raw_warnings.append(_w)
-        ticket_dict["pm_guard_warnings"] = categorize_pm_guard_warnings(_raw_warnings)
+        from ai.pm_guard_review import collect_pm_guard_warnings_from_texts
+        ticket_dict["pm_guard_warnings"] = collect_pm_guard_warnings_from_texts(
+            ticket_dict.get("draft_response") or "",
+            ticket_dict.get("draft_response_en") or "",
+            ticket_dict.get("qa_issues") or "",
+        )
     except Exception:
         ticket_dict["pm_guard_warnings"] = []
 
@@ -4428,15 +4423,10 @@ def generate_drafts(ticket_id):
                     current_behaviour=_pm_current,
                     evidence=_pm_evidence,
                 )
-            _pm_instr_text = build_pm_draft_instructions(_pm_dec_draft)
-            _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec_draft)
-            if _pm_instr_text or _pm_ctx_text:
-                _pm_block = ""
-                if _pm_instr_text:
-                    _pm_block += f"\n{_pm_instr_text}\n\n"
-                if _pm_ctx_text:
-                    _pm_block += f"{_pm_ctx_text}\n\n"
-                enhanced_kb = _pm_block + enhanced_kb
+            from ai.pm_context import build_pm_prompt_block
+            _pm_block = build_pm_prompt_block(_pm_dec_draft)
+            if _pm_block:
+                enhanced_kb = _pm_block + "\n\n" + enhanced_kb
                 logger.info(
                     f"Ticket {ticket_id}: PM decision injected into draft context "
                     f"(decision={_pm_dec_draft.get('decision')}, "
@@ -4505,34 +4495,25 @@ def generate_drafts(ticket_id):
         # 5. Validate translation: reverse-translate EN→FR and check for legal term drift
         result_en = validate_translation(result_fr, result_en, anthropic_key)
 
-        # 5b. PM output guard — append warning markers for PM decision violations.
-        #     Does NOT rewrite content; PO sees the markers on first load.
+        # 5b+5c. PM output guard + collect warnings + persist to qa_issues.
         try:
-            from ai.pm_decision_formatter import apply_pm_decision_output_guard
-            if _pm_dec_draft:
-                result_fr = apply_pm_decision_output_guard(result_fr, _pm_dec_draft)
-        except Exception as _guard_err:
-            logger.warning(
-                f"PM output guard failed for ticket {ticket_id}: {_guard_err}"
+            from ai.pm_guard_persistence import (
+                apply_pm_guard_and_collect,
+                merge_pm_guard_warnings_into_qa_issues,
             )
-
-        # 5c. Store any PM guard warnings in qa_issues so the PO sees them inline.
-        try:
-            if "[PM guard:" in result_fr:
-                import re as _re_pm
-                _pm_warnings = _re_pm.findall(r"\[PM guard:[^\]]+\]", result_fr)
-                if _pm_warnings:
-                    _raw_qa = _row_get(ticket, "qa_issues", "[]") or "[]"
-                    try:
-                        _existing_qa: list = json.loads(_raw_qa)
-                    except Exception:
-                        _existing_qa = []
-                    _existing_qa.extend(_pm_warnings[:3])
-                    db.execute(
-                        "UPDATE tickets SET qa_issues = ? WHERE ticket_id = ?",
-                        (json.dumps(_existing_qa[:10]), ticket_id),
-                    )
-                    db.commit()
+            result_fr, _new_guard_warnings = apply_pm_guard_and_collect(
+                result_fr, _pm_dec_draft
+            )
+            if _new_guard_warnings:
+                _existing_qa_raw = _row_get(ticket, "qa_issues", "[]") or "[]"
+                _merged_qa = merge_pm_guard_warnings_into_qa_issues(
+                    _existing_qa_raw, _new_guard_warnings
+                )
+                db.execute(
+                    "UPDATE tickets SET qa_issues = ? WHERE ticket_id = ?",
+                    (_merged_qa, ticket_id),
+                )
+                db.commit()
         except Exception as _pw_err:
             logger.warning(
                 f"PM guard warning storage failed for ticket {ticket_id}: {_pw_err}"
@@ -4626,28 +4607,23 @@ def regenerate_draft_pm(ticket_id):
     code_ctx = find_template_code(ticket["subject"], ticket["analysis"], db=db)
 
     try:
-        from ai.pm_decision_formatter import (
-            format_pm_decision_for_prompt,
-            apply_pm_decision_output_guard,
-            extract_pm_guard_warnings,
-        )
-        from ai.pm_draft_instructions import build_pm_draft_instructions
-        from ai.pm_guard_review import categorize_pm_guard_warnings
+        from ai.pm_guard_review import collect_pm_guard_warnings_from_texts
         from ai.pm_regeneration import build_pm_regeneration_instruction
+        from ai.pm_context import build_pm_prompt_block
+        from ai.pm_guard_persistence import (
+            apply_pm_guard_and_collect,
+            merge_pm_guard_warnings_into_qa_issues,
+        )
 
         # ── Load PM decision ──────────────────────────────────────────────────
         _pm_dec: dict = load_pm_decision_from_ticket(ticket)
 
         # ── Collect current guard warnings from stored drafts ─────────────────
-        _seen_w: set = set()
-        _raw_warnings: list = []
-        for _field in ("draft_response", "draft_response_en", "qa_issues"):
-            _text = _row_get(ticket, _field, "") or ""
-            for _w in extract_pm_guard_warnings(_text):
-                if _w not in _seen_w:
-                    _seen_w.add(_w)
-                    _raw_warnings.append(_w)
-        _guard_warnings = categorize_pm_guard_warnings(_raw_warnings)
+        _guard_warnings = collect_pm_guard_warnings_from_texts(
+            _row_get(ticket, "draft_response", "") or "",
+            _row_get(ticket, "draft_response_en", "") or "",
+            _row_get(ticket, "qa_issues", "") or "",
+        )
 
         # ── Build regeneration instruction block ──────────────────────────────
         _regen_instr = build_pm_regeneration_instruction(_pm_dec, _guard_warnings)
@@ -4661,18 +4637,10 @@ def regenerate_draft_pm(ticket_id):
                 f"\nRAW KNOWLEDGE BASE (backup):\n{truncate_text(kb_context, 2000)}"
             )
 
-        # ── Inject PM decision + drafting instructions + regeneration block ───
-        _pm_instr_text = build_pm_draft_instructions(_pm_dec)
-        _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec)
-        _pm_block = ""
-        if _regen_instr:
-            _pm_block += f"\n{_regen_instr}\n\n"
-        if _pm_instr_text:
-            _pm_block += f"\n{_pm_instr_text}\n\n"
-        if _pm_ctx_text:
-            _pm_block += f"{_pm_ctx_text}\n\n"
+        # ── Inject PM prompt block (regeneration + drafting instructions + constraints) ──
+        _pm_block = build_pm_prompt_block(_pm_dec, regeneration_instruction=_regen_instr)
         if _pm_block:
-            enhanced_kb = _pm_block + enhanced_kb
+            enhanced_kb = _pm_block + "\n\n" + enhanced_kb
 
         logger.info(
             f"Ticket {ticket_id}: PM-constrained regeneration started "
@@ -4694,14 +4662,18 @@ def regenerate_draft_pm(ticket_id):
         # ── Validate translation ──────────────────────────────────────────────
         result_en = validate_translation(result_fr, result_en, anthropic_key)
 
-        # ── Apply PM output guard ─────────────────────────────────────────────
-        try:
-            if _pm_dec:
-                result_fr = apply_pm_decision_output_guard(result_fr, _pm_dec)
-        except Exception as _guard_err:
-            logger.warning(
-                f"PM output guard failed for ticket {ticket_id}: {_guard_err}"
+        # ── Apply PM output guard + collect new warnings ──────────────────────
+        result_fr, _new_guard_warnings = apply_pm_guard_and_collect(result_fr, _pm_dec)
+        if _new_guard_warnings:
+            _existing_qa_raw = _row_get(ticket, "qa_issues", "[]") or "[]"
+            _merged_qa = merge_pm_guard_warnings_into_qa_issues(
+                _existing_qa_raw, _new_guard_warnings
             )
+            db.execute(
+                "UPDATE tickets SET qa_issues = ? WHERE ticket_id = ?",
+                (_merged_qa, ticket_id),
+            )
+            db.commit()
 
         # ── Save — only on success ────────────────────────────────────────────
         db.execute(
