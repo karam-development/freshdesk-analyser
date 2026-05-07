@@ -3307,6 +3307,35 @@ def run_analysis_job():
                 save_ticket_to_db(tid, ticket_data, conversations, compiled, analysis, draft, domain, db,
                                   rice=ai_rice, screenshots=screenshots)
 
+                # ── PM Decision: build deterministic PM constraints for this ticket ──────────
+                # Runs unconditionally (no LLM call) so every ticket gets a PM decision saved.
+                try:
+                    from ai.pm_decision_runner import build_pm_decision_for_ticket
+                    _pm_desc = ticket_data.get("description_text") or strip_html(
+                        ticket_data.get("description", "")
+                    )
+                    _pm_summary = f"{ticket_data.get('subject', '')}\n{_pm_desc[:400]}"
+                    try:
+                        _pm_current = code_brief[:300]  # set by agent pipeline if AI ran
+                    except NameError:
+                        _pm_current = ""
+                    _pm_dec = build_pm_decision_for_ticket(
+                        ticket_summary=_pm_summary,
+                        current_behaviour=_pm_current,
+                    )
+                    _pm_json = json.dumps(
+                        {k: v for k, v in _pm_dec.items() if k != "_gate_results"},
+                        ensure_ascii=False,
+                    )
+                    db.execute(
+                        "UPDATE tickets SET pm_decision_json = ? WHERE ticket_id = ?",
+                        (_pm_json, tid),
+                    )
+                except Exception as _pm_err:
+                    logger.warning(
+                        "PM decision generation/save failed for ticket %s: %s", tid, _pm_err
+                    )
+
                 # ── Learn from direct Freshdesk replies (agent responded without using the tool) ──
                 # If there's a new public agent reply since we last learned, compare it to
                 # the stored draft_response and run the Learning Agent on it.
@@ -4307,6 +4336,38 @@ def generate_drafts(ticket_id):
         except Exception as lesson_err:
             logger.warning(f"Could not inject lessons for ticket {ticket_id}: {lesson_err}")
 
+        # ── PM Decision: inject deterministic constraints into draft context ────
+        # Load the saved PM decision (built during analysis) or compute it fresh.
+        _pm_dec_draft: dict = {}
+        try:
+            from ai.pm_decision_runner import build_pm_decision_for_ticket
+            from ai.pm_decision_formatter import format_pm_decision_for_prompt
+            _saved_pm_raw = _row_get(ticket, "pm_decision_json", "{}") or "{}"
+            try:
+                _pm_dec_draft = json.loads(_saved_pm_raw)
+            except Exception:
+                _pm_dec_draft = {}
+            # Re-build if the saved decision is empty or a bare safe-default placeholder
+            if not _pm_dec_draft or (
+                _pm_dec_draft.get("decision") == "needs_analysis"
+                and _pm_dec_draft.get("classification") == "needs_analysis"
+                and not _pm_dec_draft.get("reason")
+            ):
+                _pm_summary = f"{ticket['subject']}\n{(ticket['analysis'] or '')[:500]}"
+                _pm_dec_draft = build_pm_decision_for_ticket(ticket_summary=_pm_summary)
+            _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec_draft)
+            if _pm_ctx_text:
+                enhanced_kb = f"\n{_pm_ctx_text}\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: PM decision injected into draft context "
+                    f"(decision={_pm_dec_draft.get('decision')}, "
+                    f"depth={_pm_dec_draft.get('answer_depth')})"
+                )
+        except Exception as _pm_inject_err:
+            logger.warning(
+                f"PM decision context injection failed for ticket {ticket_id}: {_pm_inject_err}"
+            )
+
         # Use Code Agent brief instead of raw code
         # Sanitize to remove any code Haiku may have slipped into its "plain language" brief
         effective_code_ctx = strip_code_from_output(code_brief) if code_brief else ""
@@ -4364,6 +4425,39 @@ def generate_drafts(ticket_id):
 
         # 5. Validate translation: reverse-translate EN→FR and check for legal term drift
         result_en = validate_translation(result_fr, result_en, anthropic_key)
+
+        # 5b. PM output guard — append warning markers for PM decision violations.
+        #     Does NOT rewrite content; PO sees the markers on first load.
+        try:
+            from ai.pm_decision_formatter import apply_pm_decision_output_guard
+            if _pm_dec_draft:
+                result_fr = apply_pm_decision_output_guard(result_fr, _pm_dec_draft)
+        except Exception as _guard_err:
+            logger.warning(
+                f"PM output guard failed for ticket {ticket_id}: {_guard_err}"
+            )
+
+        # 5c. Store any PM guard warnings in qa_issues so the PO sees them inline.
+        try:
+            if "[PM guard:" in result_fr:
+                import re as _re_pm
+                _pm_warnings = _re_pm.findall(r"\[PM guard:[^\]]+\]", result_fr)
+                if _pm_warnings:
+                    _raw_qa = _row_get(ticket, "qa_issues", "[]") or "[]"
+                    try:
+                        _existing_qa: list = json.loads(_raw_qa)
+                    except Exception:
+                        _existing_qa = []
+                    _existing_qa.extend(_pm_warnings[:3])
+                    db.execute(
+                        "UPDATE tickets SET qa_issues = ? WHERE ticket_id = ?",
+                        (json.dumps(_existing_qa[:10]), ticket_id),
+                    )
+                    db.commit()
+        except Exception as _pw_err:
+            logger.warning(
+                f"PM guard warning storage failed for ticket {ticket_id}: {_pw_err}"
+            )
 
         # 6. Mandatory QA on generated draft — runs inline (not deferred to PO review)
         #    Uses a background thread so the user isn't blocked, but results are saved immediately.
