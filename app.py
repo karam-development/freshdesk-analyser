@@ -4593,6 +4593,136 @@ def generate_drafts(ticket_id):
     return redirect(url_for("ticket_detail", ticket_id=ticket_id))
 
 
+@app.route("/ticket/<int:ticket_id>/regenerate-draft-pm", methods=["POST"])
+def regenerate_draft_pm(ticket_id):
+    """Regenerate draft responses with PM constraints and guard-warning corrections.
+
+    Safe contract:
+    - Only overwrites the stored draft on successful generation.
+    - Old draft is preserved if generation raises an exception.
+    - No new DB columns, no gate changes, no LLM provider changes.
+    - Never auto-sends to Freshdesk.
+    """
+    db = get_db()
+    ticket = db.execute("SELECT * FROM tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
+    if not ticket:
+        flash("Ticket not found.", "error")
+        return redirect(url_for("dashboard"))
+
+    anthropic_key = get_setting("anthropic_api_key", db=db)
+    if not anthropic_key:
+        flash("Anthropic API key not configured. Go to Settings.", "error")
+        return redirect(url_for("ticket_detail", ticket_id=ticket_id))
+
+    compiled = ticket["compiled_thread"] or ""
+    if not compiled:
+        flash("No ticket thread data available. Run a Freshdesk fetch first.", "error")
+        return redirect(url_for("ticket_detail", ticket_id=ticket_id))
+
+    writing_style = get_setting("writing_style", "customer_support", db=db)
+    kb_context = get_knowledge_base_context(db)
+    project_instr = get_setting("claude_project_instructions", db=db) or ""
+    term_context = get_terminology_context(db)
+    code_ctx = find_template_code(ticket["subject"], ticket["analysis"], db=db)
+
+    try:
+        from ai.pm_decision_formatter import (
+            format_pm_decision_for_prompt,
+            apply_pm_decision_output_guard,
+            extract_pm_guard_warnings,
+        )
+        from ai.pm_draft_instructions import build_pm_draft_instructions
+        from ai.pm_guard_review import categorize_pm_guard_warnings
+        from ai.pm_regeneration import build_pm_regeneration_instruction
+
+        # ── Load PM decision ──────────────────────────────────────────────────
+        _pm_dec: dict = load_pm_decision_from_ticket(ticket)
+
+        # ── Collect current guard warnings from stored drafts ─────────────────
+        _seen_w: set = set()
+        _raw_warnings: list = []
+        for _field in ("draft_response", "draft_response_en", "qa_issues"):
+            _text = _row_get(ticket, _field, "") or ""
+            for _w in extract_pm_guard_warnings(_text):
+                if _w not in _seen_w:
+                    _seen_w.add(_w)
+                    _raw_warnings.append(_w)
+        _guard_warnings = categorize_pm_guard_warnings(_raw_warnings)
+
+        # ── Build regeneration instruction block ──────────────────────────────
+        _regen_instr = build_pm_regeneration_instruction(_pm_dec, _guard_warnings)
+
+        # ── Build enhanced KB context (no agent pipeline — use raw KB only) ───
+        enhanced_kb = ""
+        if kb_context:
+            enhanced_kb = (
+                "[CONTEXT DATA BELOW IS FOR REFERENCE ONLY — DO NOT COPY TEXT FROM IT. "
+                "TRANSLATE TO THE DRAFT LANGUAGE.]\n"
+                f"\nRAW KNOWLEDGE BASE (backup):\n{truncate_text(kb_context, 2000)}"
+            )
+
+        # ── Inject PM decision + drafting instructions + regeneration block ───
+        _pm_instr_text = build_pm_draft_instructions(_pm_dec)
+        _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec)
+        _pm_block = ""
+        if _regen_instr:
+            _pm_block += f"\n{_regen_instr}\n\n"
+        if _pm_instr_text:
+            _pm_block += f"\n{_pm_instr_text}\n\n"
+        if _pm_ctx_text:
+            _pm_block += f"{_pm_ctx_text}\n\n"
+        if _pm_block:
+            enhanced_kb = _pm_block + enhanced_kb
+
+        logger.info(
+            f"Ticket {ticket_id}: PM-constrained regeneration started "
+            f"(warnings={len(_guard_warnings)}, decision={_pm_dec.get('decision')})"
+        )
+
+        # ── Generate FR draft ─────────────────────────────────────────────────
+        result_fr = generate_draft_response(
+            compiled, anthropic_key, "fr", writing_style, enhanced_kb, project_instr,
+            ticket["analysis"] or "", ticket["po_decision_reason"] or "", code_ctx,
+            terminology_context=term_context, ticket_id=ticket_id,
+            classification=_row_get(ticket, "classification", ""),
+            priority=str(_row_get(ticket, "priority", "")),
+        )
+
+        # ── Translate FR → EN ─────────────────────────────────────────────────
+        result_en = translate_draft(result_fr, "fr", "en", anthropic_key)
+
+        # ── Validate translation ──────────────────────────────────────────────
+        result_en = validate_translation(result_fr, result_en, anthropic_key)
+
+        # ── Apply PM output guard ─────────────────────────────────────────────
+        try:
+            if _pm_dec:
+                result_fr = apply_pm_decision_output_guard(result_fr, _pm_dec)
+        except Exception as _guard_err:
+            logger.warning(
+                f"PM output guard failed for ticket {ticket_id}: {_guard_err}"
+            )
+
+        # ── Save — only on success ────────────────────────────────────────────
+        db.execute(
+            "UPDATE tickets SET draft_response = ?, draft_response_en = ? WHERE ticket_id = ?",
+            (result_fr, result_en, ticket_id),
+        )
+        db.commit()
+        flash("Draft regenerated with PM constraints applied.", "success")
+
+    except Exception as e:
+        import traceback
+        err_msg = str(e)[:300]
+        err_trace = traceback.format_exc()[-500:]
+        logger.error(
+            f"PM-constrained regeneration failed for ticket {ticket_id}: {e}\n{err_trace}"
+        )
+        flash(f"Regeneration failed: {err_msg}", "error")
+
+    return redirect(url_for("ticket_detail", ticket_id=ticket_id))
+
+
 @app.route("/ticket/<int:ticket_id>/generate-decline-drafts", methods=["POST"])
 def generate_decline_drafts(ticket_id):
     """Generate decline response (FR + EN) for a declined ticket using AI."""

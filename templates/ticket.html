@@ -649,6 +649,12 @@
             {% endif %}
         </div>
         {% endfor %}
+        <form method="post" action="{{ url_for('regenerate_draft_pm', ticket_id=ticket.ticket_id) }}" style="margin-top:12px;">
+            <button type="submit" class="btn btn-sm" style="background:var(--warning-color,#d97706);color:#fff;border:none;cursor:pointer;" onclick="return confirm('Regenerate draft applying PM constraint corrections? The current draft will be replaced only on success.');">
+                Regenerate draft with PM constraints
+            </button>
+            <span style="font-size:0.72em;color:var(--text-muted);margin-left:8px;">Stored draft remains unchanged on failure.</span>
+        </form>
         {% else %}
         <p style="color:var(--success-color,#38a169);font-size:0.875em;padding:4px 0;">No PM guard warnings detected.</p>
         {% endif %}
