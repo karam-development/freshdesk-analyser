@@ -21,6 +21,68 @@ logger = logging.getLogger(__name__)
 
 # ── Patterns that signal unwanted content in AI output ────────────────────────
 
+# Guard A: global default change phrases (risk when global_change_risk=high)
+_GLOBAL_DEFAULT_PHRASES = [
+    "change the default globally",
+    "changing the default globally",
+    "update the default wording",
+    "change this for all clients",
+    "global default change",
+    "change the standard wording",
+    "changing the standard wording",
+    "default globally",
+    "modifier le libellé par défaut pour tous",
+    "changer le défaut global",
+    "changer le libellé standard",
+]
+
+# Guard B: editability / configurability phrases (expected when make_editable)
+_EDITABLE_PHRASES = [
+    "editable",
+    "configurable",
+    "configuration",
+    "per-client",
+    "client-specific",
+    "make the text editable",
+    "rendre le texte éditable",
+    "configurable par client",
+    "rendre ce champ",
+    "champ modifiable",
+    "personnalisable",
+]
+
+# Guard C: feature request framing (bad when development_type=bug_fix)
+_FEATURE_REQUEST_PHRASES = [
+    "feature request",
+    "new feature",
+    "enhancement request",
+    "demande de fonctionnalité",
+    "nouvelle fonctionnalité",
+]
+
+_BUG_FIX_PHRASES = [
+    "bug",
+    "defect",
+    "fix",
+    "anomalie",
+    "correction",
+    "bogue",
+]
+
+# Guard D: strong development language (bad when development_type=support_guidance)
+_STRONG_DEV_PHRASES = [
+    "create a jira",
+    "créer un jira",
+    "development required",
+    "développement requis",
+    "implement a change",
+    "implémenter un changement",
+    "build a new feature",
+    "construire une nouvelle fonctionnalité",
+    "requires development",
+    "nécessite un développement",
+]
+
 _LEGAL_CITATION_PATTERNS = [
     r"\bArticle\s+\d",
     r"\bLaw of\b",
@@ -172,6 +234,45 @@ def apply_pm_decision_output_guard(output: str, pm_decision: Optional[dict]) -> 
                     "PM decision says needs_prd=false.]"
                 )
                 break
+
+    # ── Guard A: global default change ────────────────────────────────────────
+    # Fire when global_change_risk=high and output suggests a global default change.
+    if pm_decision.get("global_change_risk") == "high":
+        output_lower = output.lower()
+        if any(phrase in output_lower for phrase in _GLOBAL_DEFAULT_PHRASES):
+            warnings.append(
+                "[PM guard: global default change suggested although global_change_risk=high.]"
+            )
+
+    # ── Guard B: make editable — editability not mentioned ────────────────────
+    # Fire when recommended_action=make_editable but output skips editability language.
+    if pm_decision.get("recommended_action") == "make_editable":
+        output_lower = output.lower()
+        if not any(phrase in output_lower for phrase in _EDITABLE_PHRASES):
+            warnings.append(
+                "[PM guard: recommended_action=make_editable but output does not "
+                "mention editability/configurability.]"
+            )
+
+    # ── Guard C: bug framed as feature request ────────────────────────────────
+    # Fire when development_type=bug_fix but output only uses feature-request language.
+    if pm_decision.get("development_type") == "bug_fix":
+        output_lower = output.lower()
+        has_feature_framing = any(phrase in output_lower for phrase in _FEATURE_REQUEST_PHRASES)
+        has_bug_framing = any(phrase in output_lower for phrase in _BUG_FIX_PHRASES)
+        if has_feature_framing and not has_bug_framing:
+            warnings.append(
+                "[PM guard: bug_fix decision may have been framed as a feature request.]"
+            )
+
+    # ── Guard D: support guidance escalated to development ───────────────────
+    # Fire when development_type=support_guidance but output calls for dev work.
+    if pm_decision.get("development_type") == "support_guidance":
+        output_lower = output.lower()
+        if any(phrase in output_lower for phrase in _STRONG_DEV_PHRASES):
+            warnings.append(
+                "[PM guard: support guidance decision may have been escalated to development.]"
+            )
 
     if warnings:
         return output + "\n\n" + "\n".join(warnings)

@@ -4370,6 +4370,7 @@ def generate_drafts(ticket_id):
         try:
             from ai.pm_decision_runner import build_pm_decision_for_ticket
             from ai.pm_decision_formatter import format_pm_decision_for_prompt
+            from ai.pm_draft_instructions import build_pm_draft_instructions
             from ai.pm_decision_evidence import (
                 extract_pm_ticket_summary,
                 extract_pm_current_behaviour,
@@ -4398,9 +4399,15 @@ def generate_drafts(ticket_id):
                     current_behaviour=_pm_current,
                     evidence=_pm_evidence,
                 )
+            _pm_instr_text = build_pm_draft_instructions(_pm_dec_draft)
             _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec_draft)
-            if _pm_ctx_text:
-                enhanced_kb = f"\n{_pm_ctx_text}\n\n" + enhanced_kb
+            if _pm_instr_text or _pm_ctx_text:
+                _pm_block = ""
+                if _pm_instr_text:
+                    _pm_block += f"\n{_pm_instr_text}\n\n"
+                if _pm_ctx_text:
+                    _pm_block += f"{_pm_ctx_text}\n\n"
+                enhanced_kb = _pm_block + enhanced_kb
                 logger.info(
                     f"Ticket {ticket_id}: PM decision injected into draft context "
                     f"(decision={_pm_dec_draft.get('decision')}, "
