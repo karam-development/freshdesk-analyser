@@ -7393,6 +7393,17 @@ def agent_dashboard():
     lessons = [dict(r) if hasattr(r, "keys") else r for r in lessons_rows]
     logs = [dict(r) if hasattr(r, "keys") else r for r in logs]
 
+    # ── Structured PM lessons ─────────────────────────────────────────────────
+    structured_pm_lessons = []
+    try:
+        rows = db.execute(
+            "SELECT * FROM pm_structured_lessons WHERE active = 1 "
+            "ORDER BY hit_count DESC, created_at DESC LIMIT 100"
+        ).fetchall()
+        structured_pm_lessons = [dict(r) if hasattr(r, "keys") else r for r in rows]
+    except Exception:
+        structured_pm_lessons = []
+
     # Compute aggregate stats
     total_cost = sum(r.get("total_cost", 0) or 0 for r in cost_summary)
     total_calls = sum(r.get("calls", 0) or 0 for r in cost_summary)
@@ -7412,6 +7423,7 @@ def agent_dashboard():
         total_tokens=total_tokens,
         success_rate=success_rate,
         model_configs=model_configs,
+        structured_pm_lessons=structured_pm_lessons,
     )
 
 

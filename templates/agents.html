@@ -181,6 +181,65 @@
     </div>
 </div>
 
+<!-- ── Structured PM Lessons ── -->
+<div class="card" style="margin-bottom:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <h3 style="font-size:0.95em;font-weight:700;">Structured PM Lessons</h3>
+        <span style="font-size:0.78em;color:var(--text-muted);">Extracted deterministically from PO edits · read-only</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Lesson Type</th>
+                    <th>Instruction</th>
+                    <th>Template</th>
+                    <th>Confidence</th>
+                    <th>Hits</th>
+                    <th>Active</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for sl in structured_pm_lessons %}
+                <tr>
+                    <td>
+                        <span class="badge" style="font-size:0.75em;background:
+                            {% if sl.lesson_type == 'legal_reference_removed' %}#fee2e2
+                            {% elif sl.lesson_type == 'global_change_to_editable' %}#fef3c7
+                            {% elif sl.lesson_type in ('dev_to_support_guidance', 'workaround_added', 'existing_solution_added') %}#d1fae5
+                            {% elif sl.lesson_type == 'bug_feature_framing' %}#fce7f3
+                            {% elif sl.lesson_type == 'answer_depth_shortened' %}#e0e7ff
+                            {% elif sl.lesson_type == 'classification_correction' %}#ede9fe
+                            {% else %}#f3f4f6{% endif %};
+                            color:var(--text);">
+                            {{ sl.lesson_type }}
+                        </span>
+                    </td>
+                    <td style="max-width:420px;font-size:0.85em;">{{ sl.instruction }}</td>
+                    <td class="truncate-md">{{ sl.template_name or '—' }}</td>
+                    <td>
+                        <span style="font-size:0.82em;{% if sl.confidence >= 0.8 %}color:var(--success,#38a169);font-weight:600;{% elif sl.confidence >= 0.65 %}color:var(--warning-color,#d97706);{% else %}color:var(--text-muted);{% endif %}">
+                            {{ "%.0f"|format((sl.confidence or 0) * 100) }}%
+                        </span>
+                    </td>
+                    <td style="font-size:0.85em;font-weight:600;">{{ sl.hit_count or 1 }}</td>
+                    <td>
+                        <span class="badge {% if sl.active %}badge-low{% else %}badge-high{% endif %}" style="font-size:0.72em;">
+                            {{ 'active' if sl.active else 'inactive' }}
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not structured_pm_lessons %}
+                <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:24px;">
+                    No structured PM lessons yet. They are extracted automatically when the PO edits AI-generated responses.
+                </td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <!-- ── Recent Agent Logs ── -->
 <div class="card">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
