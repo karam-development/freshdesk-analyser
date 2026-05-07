@@ -81,7 +81,13 @@ def build_pm_decision_for_ticket(
 
     dn: dict = {}
     try:
-        dn = evaluate_development_need(ticket_summary)
+        decision_context = {
+            "evidence": evidence,
+            "legal_status": lp.get("legal_status", ""),
+            "global_change_risk": gr.get("global_change_risk", ""),
+            "recommended_action": gr.get("recommended_action", ""),
+        }
+        dn = evaluate_development_need(ticket_summary, decision_context=decision_context)
     except Exception as exc:
         logger.warning("development_need gate failed: %s", exc)
 

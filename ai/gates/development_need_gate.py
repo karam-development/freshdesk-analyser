@@ -52,9 +52,54 @@ def evaluate_development_need(
         reason              : str
     """
     context = decision_context or {}
+    evidence = context.get("evidence") or {}
+    legal_status = context.get("legal_status", "")
+    global_change_risk = context.get("global_change_risk", "")
     combined = ticket_summary.lower()
 
-    # ── Bug — check first: wrong behaviour must be fixed ─────────────────────
+    # ── Priority 1 (evidence): existing workaround detected → support guidance ─
+    # Checked before keyword bug detection because a "how to use the workaround"
+    # question may also contain bug-adjacent words.
+
+    if evidence.get("mentions_existing_workaround") is True:
+        return {
+            "needs_development": False,
+            "development_type": "support_guidance",
+            "recommended_action": "explain_workaround",
+            "reason": (
+                "Evidence confirms an existing workaround or setting covers the request; "
+                "support guidance is sufficient — no development needed."
+            ),
+        }
+
+    # ── Priority 2 (evidence): wrong output confirmed → bug fix ──────────────
+
+    if evidence.get("mentions_wrong_output") is True:
+        return {
+            "needs_development": True,
+            "development_type": "bug_fix",
+            "recommended_action": "accept_bug",
+            "reason": (
+                "Evidence confirms incorrect or wrong output; bug fix required."
+            ),
+        }
+
+    # ── Priority 3 (evidence + context): client preference + high risk ────────
+    # If upstream gates classify as client_preference or product_standard with
+    # high global-change risk, the solution is always make_editable.
+
+    if legal_status in ("client_preference", "product_standard") and global_change_risk == "high":
+        return {
+            "needs_development": True,
+            "development_type": "small_improvement",
+            "recommended_action": "make_editable",
+            "reason": (
+                "Upstream gates confirm a client-specific preference with high "
+                "global-change risk; making the field editable is the solution."
+            ),
+        }
+
+    # ── Bug — keyword fallback ────────────────────────────────────────────────
 
     if any(kw in combined for kw in _BUG_KEYWORDS):
         return {
