@@ -1,6 +1,6 @@
 """PM guard warning categorizer.
 
-Two public functions:
+Three public functions:
 
   categorize_pm_guard_warning(warning: str) -> dict
       Map a single raw PM guard marker string to a structured dict with:
@@ -8,6 +8,10 @@ Two public functions:
 
   categorize_pm_guard_warnings(warnings: list[str]) -> list[dict]
       Categorize a list of raw markers; returns list of dicts.
+
+  collect_pm_guard_warnings_from_texts(*texts) -> list[dict]
+      Extract, deduplicate, and categorize PM guard markers from any number
+      of text values.  Defensive against None/empty inputs.
 
 Allowed codes:
   output_too_long | legal_reference_blocked | prd_style_blocked |
@@ -126,3 +130,22 @@ def categorize_pm_guard_warnings(warnings: List[str]) -> List[dict]:
     if not warnings:
         return []
     return [categorize_pm_guard_warning(w) for w in warnings if w]
+
+
+def collect_pm_guard_warnings_from_texts(*texts) -> List[dict]:
+    """Extract, deduplicate, and categorize PM guard markers from multiple texts.
+
+    Accepts any number of positional string arguments.  None and empty values
+    are silently skipped.  Duplicate raw markers across texts are collapsed to
+    a single entry.  Returns a list of categorised warning dicts.
+    """
+    from ai.pm_decision_formatter import extract_pm_guard_warnings
+
+    seen: set = set()
+    raw: List[str] = []
+    for text in texts:
+        for marker in extract_pm_guard_warnings(text or ""):
+            if marker not in seen:
+                seen.add(marker)
+                raw.append(marker)
+    return categorize_pm_guard_warnings(raw)

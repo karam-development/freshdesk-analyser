@@ -221,22 +221,25 @@ def test_app_uses_build_pm_regeneration_instruction():
         "app.py must call build_pm_regeneration_instruction"
 
 
-def test_app_route_uses_extract_pm_guard_warnings():
+def test_app_route_uses_collect_pm_guard_warnings_from_texts():
     app_path = Path(__file__).resolve().parents[1] / "app.py"
     source = app_path.read_text()
-    assert "extract_pm_guard_warnings" in source
+    assert "collect_pm_guard_warnings_from_texts" in source, \
+        "regenerate_draft_pm must use collect_pm_guard_warnings_from_texts"
 
 
-def test_app_route_uses_categorize_pm_guard_warnings():
+def test_app_route_uses_apply_pm_guard_and_collect():
     app_path = Path(__file__).resolve().parents[1] / "app.py"
     source = app_path.read_text()
-    assert "categorize_pm_guard_warnings" in source
+    assert "apply_pm_guard_and_collect" in source, \
+        "regenerate_draft_pm must use apply_pm_guard_and_collect"
 
 
-def test_app_route_uses_apply_pm_decision_output_guard():
+def test_app_route_uses_build_pm_prompt_block():
     app_path = Path(__file__).resolve().parents[1] / "app.py"
     source = app_path.read_text()
-    assert "apply_pm_decision_output_guard" in source
+    assert "build_pm_prompt_block" in source, \
+        "regenerate_draft_pm must use build_pm_prompt_block"
 
 
 def test_app_route_saves_only_on_success():
@@ -246,6 +249,43 @@ def test_app_route_saves_only_on_success():
     # Check that the route exists and that we commit the result
     assert "regenerate_draft_pm" in source
     assert "Draft regenerated with PM constraints applied." in source
+
+
+# ── PR-14 wiring checks ───────────────────────────────────────────────────────
+
+def test_app_uses_build_pm_prompt_block():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert "build_pm_prompt_block" in source, \
+        "app.py must use build_pm_prompt_block from ai.pm_context"
+
+
+def test_app_uses_collect_pm_guard_warnings_from_texts():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert "collect_pm_guard_warnings_from_texts" in source, \
+        "app.py must use collect_pm_guard_warnings_from_texts"
+
+
+def test_app_uses_apply_pm_guard_and_collect():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert "apply_pm_guard_and_collect" in source, \
+        "app.py must use apply_pm_guard_and_collect"
+
+
+def test_app_uses_merge_pm_guard_warnings_into_qa_issues():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert "merge_pm_guard_warnings_into_qa_issues" in source, \
+        "app.py must use merge_pm_guard_warnings_into_qa_issues"
+
+
+def test_route_still_contains_save_only_on_success_logic():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert "Draft regenerated with PM constraints applied." in source, \
+        "success flash message must still be present"
 
 
 # ── Acceptance scenario ────────────────────────────────────────────────────────
