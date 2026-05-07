@@ -157,6 +157,115 @@ def test_original_content_is_preserved():
     assert long_output in result, "Original content must be preserved unchanged"
 
 
+# ── Guard A: global default change ───────────────────────────────────────────
+
+def test_global_default_phrase_triggers_warning_when_high_risk():
+    """High global_change_risk + global-default language → warning."""
+    pm = {"global_change_risk": "high", "should_mention_law": False, "needs_prd": False}
+    output = "We suggest changing the default globally so all clients benefit."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: global default change suggested" in result
+
+
+def test_update_default_wording_phrase_triggers_warning():
+    pm = {"global_change_risk": "high"}
+    output = "The best solution would be to update the default wording for everyone."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: global default change suggested" in result
+
+
+def test_no_global_warning_when_risk_is_low():
+    """No global-default warning when risk is not high."""
+    pm = {"global_change_risk": "low"}
+    output = "We suggest changing the default globally so all clients benefit."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "global default change suggested" not in result
+
+
+def test_no_global_warning_when_no_global_phrase():
+    """High risk but no global-default phrase → no warning."""
+    pm = {"global_change_risk": "high"}
+    output = "We can make this field configurable per client."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "global default change suggested" not in result
+
+
+# ── Guard B: make editable — editability not mentioned ────────────────────────
+
+def test_make_editable_without_editable_phrase_triggers_warning():
+    """recommended_action=make_editable but output has no editable/configurable → warning."""
+    pm = {"recommended_action": "make_editable"}
+    output = "We will look into changing the wording for you."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: recommended_action=make_editable" in result
+
+
+def test_make_editable_with_editable_phrase_no_warning():
+    """recommended_action=make_editable and output mentions editable → no warning."""
+    pm = {"recommended_action": "make_editable"}
+    output = "The field can be made editable per client in the configuration settings."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "recommended_action=make_editable" not in result
+
+
+def test_make_editable_with_configurable_phrase_no_warning():
+    pm = {"recommended_action": "make_editable"}
+    output = "This section is configurable per client."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "recommended_action=make_editable" not in result
+
+
+# ── Guard C: bug_fix framed as feature request ────────────────────────────────
+
+def test_bug_fix_framed_as_feature_request_triggers_warning():
+    """development_type=bug_fix + only feature-request language (no bug/fix) → warning."""
+    pm = {"development_type": "bug_fix"}
+    output = "This is a new feature request that will enhance the product."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: bug_fix decision may have been framed as a feature request" in result
+
+
+def test_bug_fix_with_bug_language_no_warning():
+    """development_type=bug_fix + output contains bug/fix language → no warning."""
+    pm = {"development_type": "bug_fix"}
+    output = "We have identified a bug and will provide a fix in the next release."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "framed as a feature request" not in result
+
+
+def test_bug_fix_no_feature_framing_no_warning():
+    """development_type=bug_fix but output has neither feature-request nor bug language → no warning."""
+    pm = {"development_type": "bug_fix"}
+    output = "We will investigate the issue and get back to you."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "framed as a feature request" not in result
+
+
+# ── Guard D: support guidance escalated to development ────────────────────────
+
+def test_support_guidance_create_jira_triggers_warning():
+    """development_type=support_guidance + 'create a jira' → warning."""
+    pm = {"development_type": "support_guidance"}
+    output = "We will create a Jira ticket and development required to implement this."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: support guidance decision may have been escalated to development" in result
+
+
+def test_support_guidance_development_required_triggers_warning():
+    pm = {"development_type": "support_guidance"}
+    output = "Development required to implement this change for the client."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "[PM guard: support guidance decision may have been escalated to development" in result
+
+
+def test_support_guidance_no_dev_language_no_warning():
+    """development_type=support_guidance + clean support answer → no warning."""
+    pm = {"development_type": "support_guidance"}
+    output = "You can use the existing workaround by adjusting the template settings."
+    result = apply_pm_decision_output_guard(output, pm)
+    assert "escalated to development" not in result
+
+
 # ── Integration: pm_decision_json column migration ───────────────────────────
 
 def test_pm_decision_json_column_in_migrations():
