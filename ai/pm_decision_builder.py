@@ -77,12 +77,15 @@ def build_pm_decision_from_gates(
     # ── Classification ────────────────────────────────────────────────────────
     # Derive from legal_preference gate where possible.
 
-    if legal_status == "client_preference":
+    if development_type == "bug_fix":
+        # Bug classification wins over legal/product status — a bug is always a bug.
+        classification = "bug"
+    elif legal_status == "client_preference":
         classification = "client_preference"
     elif legal_status in ("mandatory", "accounting_required"):
         classification = "expected_behaviour"
-    elif development_type == "bug_fix":
-        classification = "bug"
+    elif legal_status == "product_standard":
+        classification = "expected_behaviour"
     elif development_type == "feature_request":
         classification = "feature_request"
     elif development_type == "support_guidance":
@@ -94,8 +97,8 @@ def build_pm_decision_from_gates(
 
     reasons: list[str] = []
 
-    # Rule 1: client preference + high global-change risk
-    if legal_status in ("client_preference", "optional") and global_change_risk == "high":
+    # Rule 1: client preference / product_standard + high global-change risk
+    if legal_status in ("client_preference", "optional", "product_standard") and global_change_risk == "high":
         decision           = gr_action if gr_action in ("refuse_global_change", "make_editable") \
                              else "refuse_global_change"
         recommended_action = decision

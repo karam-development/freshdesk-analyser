@@ -191,3 +191,131 @@ def test_acceptance_wording_preference_full_end_to_end():
     assert result["should_mention_law"] is False, (
         f"should_mention_law should be False, got {result['should_mention_law']}"
     )
+
+
+# ── PR #9 acceptance scenarios (A/B/C/D) ─────────────────────────────────────
+
+def test_scenario_a_evidence_custom_wording_and_correct_behaviour():
+    """Scenario A: evidence signals custom wording + correct current behaviour.
+    Expected: classification=client_preference, global_change_risk=high,
+    decision=make_editable, should_mention_law=False, needs_prd=False, max_words<=250.
+    """
+    from ai.pm_decision_evidence import extract_pm_evidence, extract_pm_current_behaviour
+
+    ticket = {
+        "subject": "Change the wording on the reconciliation note",
+        "description_text": "We want our own wording in this field instead of the default.",
+    }
+    code_brief = "The template currently shows the standard wording as designed."
+    analysis = "The current wording is correct and expected."
+
+    evidence = extract_pm_evidence(ticket, code_brief=code_brief, analysis=analysis)
+    current_behaviour = extract_pm_current_behaviour(ticket, code_brief=code_brief, analysis=analysis)
+
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Change the wording on the reconciliation note\n"
+                       "We want our own wording in this field instead of the default.",
+        current_behaviour=current_behaviour,
+        evidence=evidence,
+    )
+
+    assert result["classification"] == "client_preference", (
+        f"Scenario A: expected client_preference, got {result['classification']}"
+    )
+    assert result["global_change_risk"] == "high", (
+        f"Scenario A: expected high global_change_risk, got {result['global_change_risk']}"
+    )
+    assert result["decision"] in ("make_editable", "refuse_global_change"), (
+        f"Scenario A: expected make_editable/refuse_global_change, got {result['decision']}"
+    )
+    assert result["should_mention_law"] is False, (
+        f"Scenario A: expected should_mention_law=False"
+    )
+    assert result["needs_prd"] is False, (
+        f"Scenario A: expected needs_prd=False"
+    )
+    assert result["max_words"] <= 250, (
+        f"Scenario A: expected max_words<=250, got {result['max_words']}"
+    )
+
+
+def test_scenario_b_legal_terms_only_no_law_mention():
+    """Scenario B: ticket mentions legal terms but no explicit mandatory evidence.
+    Expected: should_mention_law=False (keyword alone is never sufficient).
+    """
+    from ai.pm_decision_evidence import extract_pm_evidence
+
+    ticket = {
+        "subject": "Legal requirement for wording",
+        "description_text": "Client mentions this might be a legal requirement per Luxembourg law.",
+    }
+    evidence = extract_pm_evidence(ticket)
+
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Legal requirement for wording\n"
+                       "Client mentions this might be a legal requirement per Luxembourg law.",
+        evidence=evidence,
+    )
+
+    assert result["should_mention_law"] is False, (
+        f"Scenario B: legal terms alone must not set should_mention_law=True, "
+        f"got {result['should_mention_law']}"
+    )
+    # No explicit mandatory keys → legal_status must NOT be "mandatory"
+    assert result["legal_status"] != "mandatory", (
+        f"Scenario B: legal_status should not be mandatory without explicit evidence, "
+        f"got {result['legal_status']}"
+    )
+
+
+def test_scenario_c_existing_workaround_no_development():
+    """Scenario C: existing workaround detected → no development, explain_workaround.
+    """
+    from ai.pm_decision_evidence import extract_pm_evidence
+
+    ticket = {
+        "subject": "How to customise the note",
+        "description_text": "How can I use the existing workaround to set this field?",
+    }
+    evidence = extract_pm_evidence(ticket)
+
+    result = build_pm_decision_for_ticket(
+        ticket_summary="How to customise the note\n"
+                       "How can I use the existing workaround to set this field?",
+        evidence=evidence,
+    )
+
+    assert result["needs_development"] is False, (
+        f"Scenario C: expected needs_development=False, got {result['needs_development']}"
+    )
+    assert result["decision"] in ("explain_workaround", "support_guidance"), (
+        f"Scenario C: expected explain_workaround/support_guidance, got {result['decision']}"
+    )
+
+
+def test_scenario_d_wrong_output_is_bug():
+    """Scenario D: evidence confirms wrong output → bug classification, accept_bug.
+    """
+    from ai.pm_decision_evidence import extract_pm_evidence
+
+    ticket = {
+        "subject": "Incorrect calculation result",
+        "description_text": "The template is producing the wrong output for account 601.",
+    }
+    evidence = extract_pm_evidence(ticket)
+
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Incorrect calculation result\n"
+                       "The template is producing the wrong output for account 601.",
+        evidence=evidence,
+    )
+
+    assert result["classification"] == "bug", (
+        f"Scenario D: expected bug classification, got {result['classification']}"
+    )
+    assert result["decision"] == "accept_bug", (
+        f"Scenario D: expected accept_bug, got {result['decision']}"
+    )
+    assert result["needs_development"] is True, (
+        f"Scenario D: expected needs_development=True"
+    )

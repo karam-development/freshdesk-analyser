@@ -28,7 +28,7 @@ _SAFE_FIX_STATUSES = {"mandatory", "accounting_required"}
 
 # ── Legal statuses that flag client-preference / high-risk changes ────────────
 
-_PREFERENCE_STATUSES = {"client_preference", "optional"}
+_PREFERENCE_STATUSES = {"client_preference", "optional", "product_standard"}
 
 
 def evaluate_global_change_risk(
@@ -48,8 +48,16 @@ def evaluate_global_change_risk(
     evidence = evidence or {}
     combined = (ticket_summary + " " + current_behaviour).lower()
 
-    has_wrong = any(kw in combined for kw in _WRONG_BEHAVIOUR_KEYWORDS)
-    has_correct = any(kw in combined for kw in _CORRECT_BEHAVIOUR_KEYWORDS)
+    # Supplement keyword detection with evidence signals
+    has_wrong = (
+        any(kw in combined for kw in _WRONG_BEHAVIOUR_KEYWORDS)
+        or evidence.get("mentions_wrong_output", False)
+    )
+    has_correct = (
+        any(kw in combined for kw in _CORRECT_BEHAVIOUR_KEYWORDS)
+        or evidence.get("mentions_correct_current_behaviour", False)
+    )
+    has_custom_wording = evidence.get("mentions_custom_wording", False)
     is_preference = legal_status in _PREFERENCE_STATUSES
 
     # ── Current behaviour is wrong + legal/accounting fix required → safe fix ─
@@ -78,11 +86,39 @@ def evaluate_global_change_risk(
             ),
         }
 
-    # ── Client preference or correct current behaviour → high risk ────────────
-    # This is the most important rule: if the request is client-specific and the
-    # current wording is correct, a global change would hurt other clients.
+    # ── product_standard status → high risk, refuse global change ─────────────
+    # Current behaviour is correct by product design; client deviation should
+    # not affect all other clients.
 
-    if is_preference or (has_correct and not has_wrong):
+    if legal_status == "product_standard":
+        return {
+            "global_change_risk": "high",
+            "safe_to_change_default": False,
+            "recommended_action": "make_editable",
+            "reason": (
+                "Current behaviour is correct and standard (product_standard); "
+                "client-specific deviation must not affect all clients. "
+                "Making the field editable is the appropriate solution."
+            ),
+        }
+
+    # ── Client preference (with or without custom-wording evidence) → high risk
+
+    if is_preference or has_custom_wording:
+        return {
+            "global_change_risk": "high",
+            "safe_to_change_default": False,
+            "recommended_action": "make_editable",
+            "reason": (
+                "Request is a client-specific wording or behaviour preference; "
+                "a global change would affect all clients. "
+                "Making the field editable is the appropriate solution."
+            ),
+        }
+
+    # ── Correct current behaviour (no explicit preference status) → high risk ──
+
+    if has_correct and not has_wrong:
         return {
             "global_change_risk": "high",
             "safe_to_change_default": False,

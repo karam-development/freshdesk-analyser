@@ -68,3 +68,49 @@ def test_empty_evidence_key_does_not_trigger_mandatory():
     )
     # Empty value → no mandatory trigger
     assert result["should_mention_law"] is False
+
+
+# ── PR #9: evidence signal tests ─────────────────────────────────────────────
+
+def test_evidence_mentions_custom_wording_is_client_preference():
+    """Priority 2: evidence['mentions_custom_wording']=True → client_preference, no law."""
+    result = evaluate_legal_preference(
+        ticket_summary="Some ticket text",
+        evidence={"mentions_custom_wording": True},
+    )
+    assert result["legal_status"] == "client_preference"
+    assert result["should_mention_law"] is False
+    assert result["confidence"] >= 0.8
+
+
+def test_evidence_mentions_correct_behaviour_is_product_standard():
+    """Priority 3: evidence['mentions_correct_current_behaviour']=True → product_standard, no law."""
+    result = evaluate_legal_preference(
+        ticket_summary="Some ticket text",
+        evidence={"mentions_correct_current_behaviour": True},
+    )
+    assert result["legal_status"] == "product_standard"
+    assert result["should_mention_law"] is False
+
+
+def test_evidence_mentions_legal_terms_only_is_unclear_no_law():
+    """Priority 5: legal terms in evidence but no explicit obligation → unclear, no law."""
+    result = evaluate_legal_preference(
+        ticket_summary="Some ticket text",
+        evidence={"mentions_legal_terms": True},
+    )
+    assert result["legal_status"] == "unclear"
+    assert result["should_mention_law"] is False
+
+
+def test_custom_wording_takes_priority_over_legal_terms():
+    """mentions_custom_wording (P2) must win over mentions_legal_terms (P5)."""
+    result = evaluate_legal_preference(
+        ticket_summary="Some ticket",
+        evidence={
+            "mentions_custom_wording": True,
+            "mentions_legal_terms": True,
+        },
+    )
+    assert result["legal_status"] == "client_preference"
+    assert result["should_mention_law"] is False
