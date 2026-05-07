@@ -277,3 +277,32 @@ def apply_pm_decision_output_guard(output: str, pm_decision: Optional[dict]) -> 
     if warnings:
         return output + "\n\n" + "\n".join(warnings)
     return output
+
+
+# ── Guard warning extraction helpers ─────────────────────────────────────────
+
+_GUARD_MARKER_RE = re.compile(r"\[PM guard:[^\]]+\]", re.IGNORECASE)
+
+
+def extract_pm_guard_warnings(output: str) -> list:
+    """Return a list of all PM guard marker strings found in *output*.
+
+    Returns [] when *output* is empty/None.  Does NOT modify *output*.
+    """
+    if not output:
+        return []
+    return _GUARD_MARKER_RE.findall(output)
+
+
+def strip_pm_guard_warnings(output: str) -> str:
+    """Return *output* with all PM guard marker lines removed.
+
+    Cleans up trailing blank lines left behind by the removal.
+    Does NOT change any other content.  Returns "" for empty/None input.
+    """
+    if not output:
+        return output or ""
+    cleaned = _GUARD_MARKER_RE.sub("", output)
+    # Collapse runs of 3+ newlines to at most 2
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.rstrip()

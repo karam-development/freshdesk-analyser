@@ -4084,6 +4084,22 @@ def ticket_detail(ticket_id):
     # Parse pm_decision_json for template display (read-only)
     ticket_dict["pm_decision"] = load_pm_decision_from_ticket(ticket_dict)
 
+    # ── Collect and categorize PM guard warnings for display ──────────────────
+    try:
+        from ai.pm_decision_formatter import extract_pm_guard_warnings
+        from ai.pm_guard_review import categorize_pm_guard_warnings
+        _seen: set = set()
+        _raw_warnings: list = []
+        for _field in ("draft_response", "draft_response_en", "qa_issues"):
+            _text = ticket_dict.get(_field) or ""
+            for _w in extract_pm_guard_warnings(_text):
+                if _w not in _seen:
+                    _seen.add(_w)
+                    _raw_warnings.append(_w)
+        ticket_dict["pm_guard_warnings"] = categorize_pm_guard_warnings(_raw_warnings)
+    except Exception:
+        ticket_dict["pm_guard_warnings"] = []
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 

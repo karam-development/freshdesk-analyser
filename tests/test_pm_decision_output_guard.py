@@ -4,7 +4,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ai.pm_decision_formatter import apply_pm_decision_output_guard
+from ai.pm_decision_formatter import (
+    apply_pm_decision_output_guard,
+    extract_pm_guard_warnings,
+    strip_pm_guard_warnings,
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -264,6 +268,65 @@ def test_support_guidance_no_dev_language_no_warning():
     output = "You can use the existing workaround by adjusting the template settings."
     result = apply_pm_decision_output_guard(output, pm)
     assert "escalated to development" not in result
+
+
+# ── extract_pm_guard_warnings ─────────────────────────────────────────────────
+
+_MULTI_GUARD_OUTPUT = (
+    "The wording has been updated for all clients.\n\n"
+    "[PM guard: legal reference detected although PM decision says should_mention_law=false.]\n"
+    "[PM guard: global default change suggested although global_change_risk=high.]\n"
+    "[PM guard: recommended_action=make_editable but output does not mention editability/configurability.]"
+)
+
+def test_extract_returns_all_markers():
+    warnings = extract_pm_guard_warnings(_MULTI_GUARD_OUTPUT)
+    assert len(warnings) == 3
+    assert all(w.startswith("[PM guard:") for w in warnings)
+
+
+def test_extract_returns_empty_for_clean_output():
+    assert extract_pm_guard_warnings("Clean response with no issues.") == []
+
+
+def test_extract_returns_empty_for_empty_string():
+    assert extract_pm_guard_warnings("") == []
+
+
+def test_extract_returns_empty_for_none():
+    assert extract_pm_guard_warnings(None) == []
+
+
+def test_extract_does_not_modify_output():
+    """extract_pm_guard_warnings must be read-only — original string unchanged."""
+    original = _MULTI_GUARD_OUTPUT
+    extract_pm_guard_warnings(original)
+    assert original == _MULTI_GUARD_OUTPUT
+
+
+# ── strip_pm_guard_warnings ────────────────────────────────────────────────────
+
+def test_strip_removes_guard_lines():
+    result = strip_pm_guard_warnings(_MULTI_GUARD_OUTPUT)
+    assert "[PM guard:" not in result
+
+
+def test_strip_preserves_normal_text():
+    result = strip_pm_guard_warnings(_MULTI_GUARD_OUTPUT)
+    assert "The wording has been updated for all clients." in result
+
+
+def test_strip_clean_output_unchanged():
+    clean = "Clean response with no PM guard issues."
+    assert strip_pm_guard_warnings(clean) == clean
+
+
+def test_strip_empty_string_returns_empty():
+    assert strip_pm_guard_warnings("") == ""
+
+
+def test_strip_none_returns_empty():
+    assert strip_pm_guard_warnings(None) == ""
 
 
 # ── Integration: pm_decision_json column migration ───────────────────────────
