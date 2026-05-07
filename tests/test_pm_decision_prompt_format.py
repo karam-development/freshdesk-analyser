@@ -144,3 +144,35 @@ def test_empty_pm_decision_returns_empty_string():
 def test_formatted_prompt_has_rules_section():
     text = format_pm_decision_for_prompt(_make_editable_decision())
     assert "Rules for this response" in text or "non-negotiable" in text
+
+
+# ── PR #16: existing solution formatter rules ─────────────────────────────────
+
+def test_explain_existing_setting_rule_is_stated():
+    dec = _make_editable_decision()
+    dec["recommended_action"] = "explain_existing_setting"
+    dec["decision"] = "explain_existing_setting"
+    text = format_pm_decision_for_prompt(dec)
+    assert "explain_existing_setting" in text
+    assert "existing setting" in text.lower() or "configuration option" in text.lower()
+
+
+def test_explain_existing_setting_no_dev_rule_present():
+    dec = _make_editable_decision()
+    dec["recommended_action"] = "explain_existing_setting"
+    text = format_pm_decision_for_prompt(dec)
+    assert "No development is needed" in text or "no development" in text.lower()
+
+
+def test_explain_workaround_no_dev_rule_present():
+    dec = _make_editable_decision()
+    dec["recommended_action"] = "explain_workaround"
+    dec["decision"] = "explain_workaround"
+    text = format_pm_decision_for_prompt(dec)
+    assert "No development is needed" in text or "no development" in text.lower()
+
+
+def test_make_editable_does_not_add_no_dev_rule():
+    """make_editable is a development action — must NOT get the no-dev rule."""
+    text = format_pm_decision_for_prompt(_make_editable_decision())
+    assert "No development is needed" not in text

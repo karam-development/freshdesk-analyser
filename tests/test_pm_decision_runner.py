@@ -319,3 +319,106 @@ def test_scenario_d_wrong_output_is_bug():
     assert result["needs_development"] is True, (
         f"Scenario D: expected needs_development=True"
     )
+
+
+# ── PR #16: existing solution detector wiring ─────────────────────────────────
+
+def test_runner_accepts_kb_brief_code_brief_research_brief():
+    """Runner must not raise when new optional params are provided."""
+    result = build_pm_decision_for_ticket(
+        ticket_summary="How can I configure the reconciliation note?",
+        kb_brief="Some KB content.",
+        code_brief="Template logic description.",
+        research_brief="Research results.",
+    )
+    for field in REQUIRED_FIELDS:
+        assert field in result, f"Missing field: {field}"
+
+
+def test_runner_gate_results_contains_existing_solution_key():
+    """_gate_results must include the existing_solution detector output."""
+    result = build_pm_decision_for_ticket("Some ticket about wording")
+    assert "existing_solution" in result["_gate_results"], (
+        "_gate_results must contain existing_solution"
+    )
+    es = result["_gate_results"]["existing_solution"]
+    for key in ("has_existing_solution", "solution_type", "recommended_action"):
+        assert key in es, f"existing_solution missing key: {key}"
+
+
+def test_kb_brief_existing_setting_leads_to_explain_existing_setting():
+    """kb_brief describing an existing setting → decision=explain_existing_setting."""
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Client asks how to set a custom label on the note.",
+        kb_brief="You can configure this via the existing setting in the configuration panel.",
+    )
+    assert result["decision"] == "explain_existing_setting", (
+        f"Expected explain_existing_setting, got {result['decision']}"
+    )
+    assert result["needs_development"] is False
+
+
+def test_code_brief_workaround_leads_to_explain_workaround():
+    """code_brief describing a workaround → decision=explain_workaround or support."""
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Client wants to adjust note text.",
+        code_brief="A workaround exists: the user can bypass the default via a flag.",
+    )
+    assert result["decision"] in ("explain_workaround", "support_guidance"), (
+        f"Expected explain_workaround/support_guidance, got {result['decision']}"
+    )
+    assert result["needs_development"] is False
+
+
+def test_existing_solution_evidence_enriches_development_need():
+    """Detector identifying existing_workaround enriches evidence so gate
+    returns explain_workaround."""
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Client has a question about their template",
+        evidence={"mentions_existing_workaround": True},
+    )
+    assert result["needs_development"] is False
+    assert result["decision"] in ("explain_workaround", "support_guidance")
+
+
+# ── PR #16 acceptance scenario ────────────────────────────────────────────────
+
+def test_pr16_acceptance_custom_wording_correct_behaviour_make_editable():
+    """PR 16 acceptance: client wording preference on correct behaviour.
+
+    Ticket:    "Client asks to change the default wording to their preferred wording."
+    Behaviour: "Current wording is correct and standard."
+    Evidence:  mentions_custom_wording=True, mentions_correct_current_behaviour=True
+
+    Expected:
+    - recommended_action = make_editable
+    - needs_prd = false
+    - answer_depth = short
+    - should_mention_law = false
+    - global_change_risk = high
+    """
+    result = build_pm_decision_for_ticket(
+        ticket_summary="Client asks to change the default wording to their preferred wording.",
+        current_behaviour="Current wording is correct and standard.",
+        evidence={
+            "mentions_custom_wording": True,
+            "mentions_correct_current_behaviour": True,
+            "mentions_wrong_output": False,
+        },
+    )
+
+    assert result["recommended_action"] == "make_editable", (
+        f"PR16 acceptance: expected make_editable, got {result['recommended_action']}"
+    )
+    assert result["needs_prd"] is False, (
+        f"PR16 acceptance: expected needs_prd=False"
+    )
+    assert result["answer_depth"] == "short", (
+        f"PR16 acceptance: expected answer_depth=short, got {result['answer_depth']}"
+    )
+    assert result["should_mention_law"] is False, (
+        f"PR16 acceptance: expected should_mention_law=False"
+    )
+    assert result["global_change_risk"] == "high", (
+        f"PR16 acceptance: expected global_change_risk=high, got {result['global_change_risk']}"
+    )

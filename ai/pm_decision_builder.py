@@ -109,8 +109,18 @@ def build_pm_decision_from_gates(
 
     # Rule 2: support/no-dev
     elif development_type in ("support_guidance", "no_dev") and not needs_development:
-        decision           = "explain_workaround" if development_type == "support_guidance" \
-                             else "support_guidance"
+        # Prefer the gate's specific action when it is one of the known solution types.
+        _specific_actions = (
+            "explain_existing_setting",
+            "explain_workaround",
+            "reference_existing_template_pattern",
+        )
+        if dn_action in _specific_actions:
+            decision = dn_action
+        elif development_type == "support_guidance":
+            decision = "explain_workaround"
+        else:
+            decision = "support_guidance"
         recommended_action = decision
         reasons.append("Workaround or existing feature is sufficient; no development needed.")
 
