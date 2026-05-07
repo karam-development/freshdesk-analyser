@@ -625,6 +625,34 @@
     </div>
     {% endif %}
 
+    <!-- PM GUARD REVIEW CARD -->
+    <div class="card">
+        <h3 class="card-heading">PM Guard Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
+        {% if ticket.pm_guard_warnings %}
+        <p style="font-size:0.8em;color:var(--text-muted);margin:0 0 10px 0;">{{ ticket.pm_guard_warnings|length }} warning{{ 's' if ticket.pm_guard_warnings|length != 1 else '' }} detected in draft output.</p>
+        {% for w in ticket.pm_guard_warnings %}
+        <div style="border-left:3px solid {% if w.severity == 'high' %}var(--danger,#e53e3e){% elif w.severity == 'medium' %}var(--warning-color,#d97706){% else %}var(--border){% endif %};padding:6px 10px;margin-bottom:8px;background:var(--card);border-radius:0 4px 4px 0;">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+                {% if w.severity == 'high' %}
+                <span class="badge badge-high" style="font-size:0.7em;">high</span>
+                {% elif w.severity == 'medium' %}
+                <span class="badge badge-medium" style="font-size:0.7em;">medium</span>
+                {% else %}
+                <span class="badge" style="font-size:0.7em;">low</span>
+                {% endif %}
+                <span style="font-size:0.85em;font-weight:600;color:var(--text);">{{ w.title }}</span>
+            </div>
+            <p style="margin:0;font-size:0.8em;color:var(--text-muted);">{{ w.message }}</p>
+            {% if w.raw %}
+            <p style="margin:4px 0 0 0;font-size:0.72em;color:var(--text-muted);font-family:monospace;opacity:0.7;">{{ w.raw }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p style="color:var(--success-color,#38a169);font-size:0.875em;padding:4px 0;">No PM guard warnings detected.</p>
+        {% endif %}
+    </div>
+
     <!-- RICE PRIORITIZATION SECTION -->
     <div class="card full">
         <div class="card-header-with-badge">
