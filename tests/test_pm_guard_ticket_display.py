@@ -177,3 +177,68 @@ def test_acceptance_three_markers_full_pipeline():
     raws = {w["raw"] for w in warnings}
     assert "[PM guard: legal reference detected although PM decision says should_mention_law=false.]" in raws
     assert "[PM guard: global default change suggested although global_change_risk=high.]" in raws
+
+
+# ── PR 12: clean draft display checks ────────────────────────────────────────
+
+def test_app_sets_draft_response_clean():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert 'draft_response_clean' in source, \
+        'app.py must set ticket_dict["draft_response_clean"]'
+
+
+def test_app_sets_draft_response_en_clean():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert 'draft_response_en_clean' in source, \
+        'app.py must set ticket_dict["draft_response_en_clean"]'
+
+
+def test_app_uses_get_clean_draft_for_display():
+    app_path = Path(__file__).resolve().parents[1] / "app.py"
+    source = app_path.read_text()
+    assert 'get_clean_draft_for_display' in source, \
+        'app.py must use get_clean_draft_for_display'
+
+
+def test_template_references_draft_response_clean():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "draft_response_clean" in source, \
+        "ticket.html must reference draft_response_clean"
+
+
+def test_template_references_draft_response_en_clean():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "draft_response_en_clean" in source, \
+        "ticket.html must reference draft_response_en_clean"
+
+
+def test_template_contains_copy_clean_draft_button():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "Copy clean draft" in source, \
+        "ticket.html must contain a 'Copy clean draft' button"
+
+
+def test_template_contains_stored_draft_unchanged_note():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "Stored draft remains unchanged" in source, \
+        "PM Guard Review card must note that the stored draft is unchanged"
+
+
+def test_template_contains_clean_content_attribute():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "data-clean-content" in source, \
+        "ticket.html must use data-clean-content attribute on draft textareas"
+
+
+def test_template_uses_clean_content_in_js():
+    template_path = Path(__file__).resolve().parents[1] / "templates" / "ticket.html"
+    source = template_path.read_text()
+    assert "cleanContent" in source, \
+        "ticket.html JS must use dataset.cleanContent for display"

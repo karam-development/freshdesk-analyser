@@ -4084,6 +4084,19 @@ def ticket_detail(ticket_id):
     # Parse pm_decision_json for template display (read-only)
     ticket_dict["pm_decision"] = load_pm_decision_from_ticket(ticket_dict)
 
+    # ── Clean display copies of draft (PM guard markers stripped, display-only) ─
+    try:
+        from ai.pm_guard_display import get_clean_draft_for_display
+        ticket_dict["draft_response_clean"] = get_clean_draft_for_display(
+            ticket_dict.get("draft_response") or ""
+        )
+        ticket_dict["draft_response_en_clean"] = get_clean_draft_for_display(
+            ticket_dict.get("draft_response_en") or ""
+        )
+    except Exception:
+        ticket_dict["draft_response_clean"] = ticket_dict.get("draft_response") or ""
+        ticket_dict["draft_response_en_clean"] = ticket_dict.get("draft_response_en") or ""
+
     # ── Collect and categorize PM guard warnings for display ──────────────────
     try:
         from ai.pm_decision_formatter import extract_pm_guard_warnings

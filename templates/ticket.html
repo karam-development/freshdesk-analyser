@@ -629,7 +629,8 @@
     <div class="card">
         <h3 class="card-heading">PM Guard Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
         {% if ticket.pm_guard_warnings %}
-        <p style="font-size:0.8em;color:var(--text-muted);margin:0 0 10px 0;">{{ ticket.pm_guard_warnings|length }} warning{{ 's' if ticket.pm_guard_warnings|length != 1 else '' }} detected in draft output.</p>
+        <p style="font-size:0.8em;color:var(--text-muted);margin:0 0 4px 0;">{{ ticket.pm_guard_warnings|length }} warning{{ 's' if ticket.pm_guard_warnings|length != 1 else '' }} detected in draft output.</p>
+        <p style="font-size:0.75em;color:var(--text-muted);margin:0 0 10px 0;font-style:italic;">Guard warnings are shown separately and removed from the display copy. Stored draft remains unchanged.</p>
         {% for w in ticket.pm_guard_warnings %}
         <div style="border-left:3px solid {% if w.severity == 'high' %}var(--danger,#e53e3e){% elif w.severity == 'medium' %}var(--warning-color,#d97706){% else %}var(--border){% endif %};padding:6px 10px;margin-bottom:8px;background:var(--card);border-radius:0 4px 4px 0;">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
@@ -964,7 +965,10 @@
         <form id="ticket-form" method="POST" action="{{ url_for('update_ticket', ticket_id=ticket.ticket_id) }}">
             <!-- FR editor -->
             <div id="editor-fr" class="draft-editor">
-                <label class="form-label">EDIT DRAFT RESPONSE (FRENCH)</label>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                    <label class="form-label" style="margin-bottom:0;">EDIT DRAFT RESPONSE (FRENCH)</label>
+                    <button type="button" class="btn btn-secondary" style="font-size:0.75em;padding:3px 10px;" onclick="copyCleanDraft('fr')" title="Copy clean draft without PM guard markers">Copy clean draft</button>
+                </div>
                 <div class="rich-editor-toolbar">
                     <button type="button" onclick="insertImageFromPicker('fr')" title="Insert image from ticket screenshots" class="toolbar-btn">🖼️ Insert Image</button>
                     <button type="button" onclick="document.getElementById('upload-img-fr').click()" title="Upload image from your computer" class="toolbar-btn">📎 Upload</button>
@@ -972,7 +976,7 @@
                     <span style="font-size:0.7em;color:#94a3b8;margin-left:auto;">Tip: paste images directly (Ctrl+V)</span>
                 </div>
                 <div contenteditable="true" id="richtext-fr" class="rich-editor" data-lang="fr"></div>
-                <textarea name="draft_response" id="textarea-fr" style="display:none;">{{ ticket.draft_response or '' }}</textarea>
+                <textarea name="draft_response" id="textarea-fr" style="display:none;" data-clean-content="{{ ticket.draft_response_clean or '' }}">{{ ticket.draft_response or '' }}</textarea>
             </div>
 
             <!-- EN editor -->
@@ -985,7 +989,7 @@
                     <span style="font-size:0.7em;color:#94a3b8;margin-left:auto;">Tip: paste images directly (Ctrl+V)</span>
                 </div>
                 <div contenteditable="true" id="richtext-en" class="rich-editor" data-lang="en"></div>
-                <textarea name="draft_response_en" id="textarea-en" style="display:none;">{{ ticket.draft_response_en or '' }}</textarea>
+                <textarea name="draft_response_en" id="textarea-en" style="display:none;" data-clean-content="{{ ticket.draft_response_en_clean or '' }}">{{ ticket.draft_response_en or '' }}</textarea>
             </div>
 
             <div class="draft-controls">
@@ -1167,6 +1171,28 @@
 
     let currentLang = 'fr';
 
+    /** Copy the clean draft (PM guard markers excluded) for the given language */
+    function copyCleanDraft(lang) {
+        var textarea = document.getElementById('textarea-' + lang);
+        if (!textarea) return;
+        var cleanText = (textarea.dataset.cleanContent !== undefined && textarea.dataset.cleanContent !== '')
+            ? textarea.dataset.cleanContent
+            : textarea.value;
+        if (!cleanText.trim()) return;
+        navigator.clipboard.writeText(cleanText).then(function() {
+            var btn = event && event.target ? event.target : null;
+            if (btn) { var orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = orig; }, 1500); }
+        }).catch(function() {
+            // Fallback for older browsers
+            var ta = document.createElement('textarea');
+            ta.value = cleanText;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+        });
+    }
+
     function switchLanguage(lang) {
         currentLang = lang;
         const btnFr = document.getElementById('btn-lang-fr');
@@ -1205,7 +1231,10 @@
         const textarea = document.getElementById(textareaId);
         if (!textarea) return;
 
-        const draftText = textarea.value;
+        // Use clean draft text for section display (PM guard markers excluded)
+        const draftText = (textarea.dataset.cleanContent !== undefined && textarea.dataset.cleanContent !== '')
+            ? textarea.dataset.cleanContent
+            : textarea.value;
 
         if (!draftText.trim()) {
             const noContentMsg = currentLang === 'fr'
@@ -1390,8 +1419,13 @@
         var textarea = document.getElementById('textarea-' + lang);
         if (!editor || !textarea) return;
 
-        // Populate the rich editor from the textarea
-        editor.innerHTML = textToRichHtml(textarea.value);
+        // Use clean content (PM guard markers stripped) for display if available.
+        // The textarea raw value is preserved for form submission; only the
+        // visible rich editor uses the clean version.
+        var displayContent = (textarea.dataset.cleanContent !== undefined && textarea.dataset.cleanContent !== '')
+            ? textarea.dataset.cleanContent
+            : textarea.value;
+        editor.innerHTML = textToRichHtml(displayContent);
 
         // Sync on every input
         editor.addEventListener('input', function() {
