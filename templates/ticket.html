@@ -546,6 +546,85 @@
         </div>
     </div>
 
+    <!-- PM DECISION CARD (read-only) -->
+    {% if ticket.pm_decision %}
+    <div class="card">
+        <h3 class="card-heading">PM Decision <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        <div class="meta-grid">
+            <div class="meta-item">
+                <div class="meta-label">Decision</div>
+                <div class="meta-value">
+                    {% if ticket.pm_decision.decision == 'make_editable' %}<span class="badge badge-feature">{{ ticket.pm_decision.decision }}</span>
+                    {% elif ticket.pm_decision.decision == 'accept_bug' %}<span class="badge badge-bug">{{ ticket.pm_decision.decision }}</span>
+                    {% elif ticket.pm_decision.decision == 'refuse_global_change' %}<span class="badge badge-high">{{ ticket.pm_decision.decision }}</span>
+                    {% elif ticket.pm_decision.decision == 'needs_analysis' %}<span class="badge">{{ ticket.pm_decision.decision }}</span>
+                    {% else %}<span class="badge">{{ ticket.pm_decision.decision }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Classification</div>
+                <div class="meta-value">
+                    {% if ticket.pm_decision.classification == 'bug' %}<span class="badge badge-bug">bug</span>
+                    {% elif ticket.pm_decision.classification == 'client_preference' %}<span class="badge badge-feature">client_preference</span>
+                    {% else %}<span class="badge">{{ ticket.pm_decision.classification }}</span>{% endif %}
+                </div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Recommended Action</div>
+                <div class="meta-value"><span class="badge">{{ ticket.pm_decision.recommended_action }}</span></div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Complexity</div>
+                <div class="meta-value">{{ ticket.pm_decision.complexity }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Answer Depth</div>
+                <div class="meta-value">{{ ticket.pm_decision.answer_depth }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Max Words</div>
+                <div class="meta-value">{{ ticket.pm_decision.max_words }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Needs Development</div>
+                <div class="meta-value">{{ 'Yes' if ticket.pm_decision.needs_development else 'No' }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Development Type</div>
+                <div class="meta-value">{{ ticket.pm_decision.development_type }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Legal Status</div>
+                <div class="meta-value">{{ ticket.pm_decision.legal_status }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Mention Law</div>
+                <div class="meta-value">{{ 'Yes' if ticket.pm_decision.should_mention_law else 'No' }}</div>
+            </div>
+            <div class="meta-item">
+                <div class="meta-label">Global Change Risk</div>
+                <div class="meta-value">
+                    {% if ticket.pm_decision.global_change_risk == 'high' %}<span class="badge badge-high">high</span>
+                    {% elif ticket.pm_decision.global_change_risk == 'medium' %}<span class="badge badge-medium">medium</span>
+                    {% elif ticket.pm_decision.global_change_risk == 'low' %}<span class="badge badge-low">low</span>
+                    {% else %}<span style="color:var(--text-muted);">{{ ticket.pm_decision.global_change_risk or 'unclear' }}</span>{% endif %}
+                </div>
+            </div>
+        </div>
+        {% if ticket.pm_decision.reason %}
+        <div class="section-spacer">
+            <div class="meta-label">Reason</div>
+            <p class="section-text" style="color:var(--text-muted);font-size:0.875em;">{{ ticket.pm_decision.reason }}</p>
+        </div>
+        {% endif %}
+    </div>
+    {% else %}
+    <div class="card">
+        <h3 class="card-heading">PM Decision <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        <p style="color:var(--text-muted);font-size:0.875em;padding:8px 0;">No PM decision generated yet. Fetch ticket to generate.</p>
+    </div>
+    {% endif %}
+
     <!-- RICE PRIORITIZATION SECTION -->
     <div class="card full">
         <div class="card-header-with-badge">
