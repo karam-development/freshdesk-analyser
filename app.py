@@ -1461,6 +1461,20 @@ def truncate_text(text, max_chars=2000):
     return text[:max_chars] + "\n\n[... truncated for brevity ...]"
 
 
+def load_pm_decision_from_ticket(ticket) -> dict:
+    """Safely load and parse pm_decision_json from a ticket row or dict.
+
+    Returns an empty dict on any failure (missing field, invalid JSON, None).
+    Never raises — safe to call in route handlers.
+    """
+    try:
+        raw = _row_get(ticket, "pm_decision_json", "{}") or "{}"
+        result = json.loads(raw)
+        return result if isinstance(result, dict) else {}
+    except Exception:
+        return {}
+
+
 def strip_code_from_output(text):
     """Post-processing: aggressively remove code patterns that leak into AI output.
     This is a safety net — the prompts should prevent this, but models frequently slip.
@@ -3311,17 +3325,28 @@ def run_analysis_job():
                 # Runs unconditionally (no LLM call) so every ticket gets a PM decision saved.
                 try:
                     from ai.pm_decision_runner import build_pm_decision_for_ticket
-                    _pm_desc = ticket_data.get("description_text") or strip_html(
-                        ticket_data.get("description", "")
+                    from ai.pm_decision_evidence import (
+                        extract_pm_ticket_summary,
+                        extract_pm_current_behaviour,
+                        extract_pm_evidence,
                     )
-                    _pm_summary = f"{ticket_data.get('subject', '')}\n{_pm_desc[:400]}"
                     try:
-                        _pm_current = code_brief[:300]  # set by agent pipeline if AI ran
+                        _pm_cb = code_brief  # set by agent pipeline when AI ran
                     except NameError:
-                        _pm_current = ""
+                        _pm_cb = ""
+                    _pm_summary = extract_pm_ticket_summary(ticket_data)
+                    _pm_current = extract_pm_current_behaviour(
+                        ticket_data, code_brief=_pm_cb,
+                        analysis=analysis.get("analysis", "") if isinstance(analysis, dict) else "",
+                    )
+                    _pm_evidence = extract_pm_evidence(
+                        ticket_data, code_brief=_pm_cb,
+                        analysis=analysis.get("analysis", "") if isinstance(analysis, dict) else "",
+                    )
                     _pm_dec = build_pm_decision_for_ticket(
                         ticket_summary=_pm_summary,
                         current_behaviour=_pm_current,
+                        evidence=_pm_evidence,
                     )
                     _pm_json = json.dumps(
                         {k: v for k, v in _pm_dec.items() if k != "_gate_results"},
@@ -4056,6 +4081,9 @@ def ticket_detail(ticket_id):
                    (ticket_dict["ticket_url"], ticket_id))
         db.commit()
 
+    # Parse pm_decision_json for template display (read-only)
+    ticket_dict["pm_decision"] = load_pm_decision_from_ticket(ticket_dict)
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 
@@ -4342,19 +4370,34 @@ def generate_drafts(ticket_id):
         try:
             from ai.pm_decision_runner import build_pm_decision_for_ticket
             from ai.pm_decision_formatter import format_pm_decision_for_prompt
-            _saved_pm_raw = _row_get(ticket, "pm_decision_json", "{}") or "{}"
-            try:
-                _pm_dec_draft = json.loads(_saved_pm_raw)
-            except Exception:
-                _pm_dec_draft = {}
+            from ai.pm_decision_evidence import (
+                extract_pm_ticket_summary,
+                extract_pm_current_behaviour,
+                extract_pm_evidence,
+            )
+            _pm_dec_draft = load_pm_decision_from_ticket(ticket)
             # Re-build if the saved decision is empty or a bare safe-default placeholder
             if not _pm_dec_draft or (
                 _pm_dec_draft.get("decision") == "needs_analysis"
                 and _pm_dec_draft.get("classification") == "needs_analysis"
                 and not _pm_dec_draft.get("reason")
             ):
-                _pm_summary = f"{ticket['subject']}\n{(ticket['analysis'] or '')[:500]}"
-                _pm_dec_draft = build_pm_decision_for_ticket(ticket_summary=_pm_summary)
+                _pm_summary = extract_pm_ticket_summary(ticket)
+                _pm_current = extract_pm_current_behaviour(
+                    ticket,
+                    code_brief=code_brief if code_brief else "",
+                    analysis=ticket["analysis"] or "",
+                )
+                _pm_evidence = extract_pm_evidence(
+                    ticket,
+                    code_brief=code_brief if code_brief else "",
+                    analysis=ticket["analysis"] or "",
+                )
+                _pm_dec_draft = build_pm_decision_for_ticket(
+                    ticket_summary=_pm_summary,
+                    current_behaviour=_pm_current,
+                    evidence=_pm_evidence,
+                )
             _pm_ctx_text = format_pm_decision_for_prompt(_pm_dec_draft)
             if _pm_ctx_text:
                 enhanced_kb = f"\n{_pm_ctx_text}\n\n" + enhanced_kb
