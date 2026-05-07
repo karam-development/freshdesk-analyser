@@ -660,6 +660,57 @@
         {% endif %}
     </div>
 
+    <!-- EXISTING SOLUTION REVIEW CARD -->
+    <div class="card">
+        <h3 class="card-heading">Existing Solution Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        {% if ticket.existing_solution_review and ticket.existing_solution_review.has_data %}
+        {% set esr = ticket.existing_solution_review %}
+        <div style="border-left:3px solid {% if esr.severity == 'success' %}var(--success-color,#38a169){% elif esr.severity == 'info' %}var(--info-color,#3182ce){% elif esr.severity == 'warning' %}var(--warning-color,#d97706){% else %}var(--border){% endif %};padding:8px 12px;border-radius:0 4px 4px 0;background:var(--card);">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">
+                {% if esr.severity == 'success' %}
+                <span class="badge badge-low" style="font-size:0.75em;">{{ esr.badge_label }}</span>
+                {% elif esr.severity == 'info' %}
+                <span class="badge" style="font-size:0.75em;background:var(--info-color,#3182ce);color:#fff;">{{ esr.badge_label }}</span>
+                {% elif esr.severity == 'warning' %}
+                <span class="badge badge-medium" style="font-size:0.75em;">{{ esr.badge_label }}</span>
+                {% else %}
+                <span class="badge" style="font-size:0.75em;">{{ esr.badge_label }}</span>
+                {% endif %}
+                {% if esr.recommended_action %}
+                <span style="font-size:0.8em;color:var(--text-muted);">→ <code style="font-size:0.9em;">{{ esr.recommended_action }}</code></span>
+                {% endif %}
+                {% if esr.confidence %}
+                <span style="font-size:0.75em;color:var(--text-muted);margin-left:auto;">{{ "%.0f"|format(esr.confidence * 100) }}% confidence</span>
+                {% endif %}
+            </div>
+            {% if esr.reason %}
+            <p style="margin:0 0 6px 0;font-size:0.82em;color:var(--text);">{{ esr.reason }}</p>
+            {% endif %}
+            {% if esr.solution_type == 'make_editable' %}
+            <p style="margin:0 0 6px 0;font-size:0.8em;color:var(--text-muted);font-style:italic;">This suggests a configurable/editable approach instead of a global default change.</p>
+            {% endif %}
+            {% if esr.sources %}
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+                <span style="font-size:0.72em;color:var(--text-muted);font-weight:600;margin-right:2px;">Sources:</span>
+                {% for src in esr.sources %}
+                <span style="font-size:0.72em;background:var(--tag-bg,#e2e8f0);color:var(--tag-color,#4a5568);padding:1px 6px;border-radius:10px;">{{ src }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if esr.signals %}
+            <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;">
+                <span style="font-size:0.72em;color:var(--text-muted);font-weight:600;margin-right:2px;">Signals:</span>
+                {% for sig in esr.signals %}
+                <span style="font-size:0.72em;background:var(--tag-bg,#e2e8f0);color:var(--tag-color,#4a5568);padding:1px 6px;border-radius:10px;">{{ sig }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No existing solution review available yet.</p>
+        {% endif %}
+    </div>
+
     <!-- RICE PRIORITIZATION SECTION -->
     <div class="card full">
         <div class="card-header-with-badge">
