@@ -1387,6 +1387,7 @@ class AgentOrchestrator:
             return []
 
         start = time.time()
+        llm_result = []
         try:
             result, usage = learning_agent(
                 self.client, self.db, ticket_id, ticket_subject,
@@ -1398,11 +1399,38 @@ class AgentOrchestrator:
             )
             duration = int((time.time() - start) * 1000)
             self._log_agent("learning_agent", ticket_id, 0, len(str(result)), duration, usage=usage)
-            return result
+            llm_result = result
         except Exception as e:
             duration = int((time.time() - start) * 1000)
             self._log_agent("learning_agent", ticket_id, 0, 0, duration, False, e)
-            return []
+
+        # ── Structured PM lesson extraction (deterministic, additive) ─────────
+        # Runs regardless of LLM result; never blocks or overwrites free-text lessons.
+        try:
+            from ai.pm_learning import (
+                extract_structured_pm_lessons,
+                upsert_structured_pm_lesson,
+            )
+            struct_lessons = extract_structured_pm_lessons(
+                original_ai_output=original_output,
+                final_po_output=final_output,
+                template_name=template_name,
+                workflow_name=workflow_name,
+            )
+            for lesson in struct_lessons:
+                upsert_structured_pm_lesson(self.db, ticket_id, lesson)
+            if struct_lessons:
+                self.db.commit()
+                logger.info(
+                    "Structured PM lessons extracted: %d for ticket %s",
+                    len(struct_lessons), ticket_id,
+                )
+        except Exception as se:
+            logger.warning(
+                "Structured PM lesson extraction failed for ticket %s: %s", ticket_id, se
+            )
+
+        return llm_result
 
     # ── Batch KB optimization ─────────────────────────────────────────────────
 
@@ -1544,6 +1572,29 @@ CREATE TABLE IF NOT EXISTS agent_cache (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON agent_cache(agent_name, ticket_id, cache_key);
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON agent_cache(expires_at);
+
+CREATE TABLE IF NOT EXISTS pm_structured_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_ticket_id INTEGER,
+    template_name TEXT DEFAULT '',
+    workflow_name TEXT DEFAULT '',
+    lesson_type TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    before TEXT DEFAULT '',
+    after TEXT DEFAULT '',
+    instruction TEXT NOT NULL,
+    confidence REAL DEFAULT 0,
+    applies_to TEXT DEFAULT 'all',
+    source TEXT DEFAULT 'pm_structured_edit',
+    active INTEGER DEFAULT 1,
+    hit_count INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_reinforced_at TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_pm_struct_lesson_type ON pm_structured_lessons(lesson_type);
+CREATE INDEX IF NOT EXISTS idx_pm_struct_template ON pm_structured_lessons(template_name);
+CREATE INDEX IF NOT EXISTS idx_pm_struct_active ON pm_structured_lessons(active);
 """
 
 
