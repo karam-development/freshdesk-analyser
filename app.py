@@ -4108,6 +4108,17 @@ def ticket_detail(ticket_id):
     except Exception:
         ticket_dict["pm_guard_warnings"] = []
 
+    # ── Extract existing solution review for display ───────────────────────────
+    try:
+        from ai.existing_solution_display import (
+            extract_existing_solution_from_pm_decision,
+        )
+        ticket_dict["existing_solution_review"] = (
+            extract_existing_solution_from_pm_decision(ticket_dict["pm_decision"])
+        )
+    except Exception:
+        ticket_dict["existing_solution_review"] = {"has_data": False}
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 
