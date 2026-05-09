@@ -4183,6 +4183,7 @@ def ticket_detail(ticket_id):
         from ai.kb_retrieval import retrieve_relevant_kb_entries
         from ai.kb_evidence_display import build_kb_evidence_review
         from ai.kb_evidence_snapshot import load_kb_evidence_snapshot
+        from ai.kb_snapshot_display import build_kb_snapshot_flow_review
 
         _kb_container = load_kb_evidence_snapshot(ticket_dict.get("kb_evidence_json"))
         ticket_dict["kb_evidence_snapshot"] = _kb_container
@@ -4208,10 +4209,21 @@ def ticket_detail(ticket_id):
             )
             ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
             ticket_dict["kb_evidence_review_source"] = "live"
+
+        # ── Per-flow snapshot audit view ──────────────────────────────────────
+        try:
+            ticket_dict["kb_snapshot_flow_review"] = build_kb_snapshot_flow_review(_kb_container)
+        except Exception:
+            ticket_dict["kb_snapshot_flow_review"] = {
+                "has_data": False, "flows": [], "summary": {"flow_count": 0}
+            }
     except Exception:
         ticket_dict["kb_evidence_review"] = {"has_data": False, "entries": [], "summary": {"count": 0}}
         ticket_dict["kb_evidence_snapshot"] = {"snapshots": {}, "latest_flow": "", "updated_at": ""}
         ticket_dict["kb_evidence_review_source"] = "live"
+        ticket_dict["kb_snapshot_flow_review"] = {
+            "has_data": False, "flows": [], "summary": {"flow_count": 0}
+        }
 
     return render_template("ticket.html", ticket=ticket_dict)
 
