@@ -231,6 +231,7 @@ def init_db():
         "jira_ticket_url": "ALTER TABLE tickets ADD COLUMN jira_ticket_url TEXT DEFAULT ''",
         "bso_status": "ALTER TABLE tickets ADD COLUMN bso_status TEXT DEFAULT ''",
         "pm_decision_json": "ALTER TABLE tickets ADD COLUMN pm_decision_json TEXT DEFAULT '{}'",
+        "kb_evidence_json": "ALTER TABLE tickets ADD COLUMN kb_evidence_json TEXT DEFAULT '{}'",
     }
     for col, sql in ticket_migrations.items():
         if col not in ticket_cols:
@@ -3356,6 +3357,11 @@ def run_analysis_job():
                     # ── KB evidence signals (ingest) ──────────────────────────
                     try:
                         from ai.kb_retrieval import retrieve_relevant_kb_entries, derive_kb_evidence_signals
+                        from ai.kb_evidence_snapshot import (
+                            build_kb_evidence_snapshot,
+                            merge_kb_evidence_snapshot,
+                            load_kb_evidence_snapshot,
+                        )
                         _kb_entries_ingest = retrieve_relevant_kb_entries(
                             db,
                             subject=ticket_data.get("subject", ""),
@@ -3365,6 +3371,22 @@ def run_analysis_job():
                         )
                         _kb_sigs_ingest = derive_kb_evidence_signals(_kb_entries_ingest)
                         _pm_evidence["kb_evidence_signals"] = _kb_sigs_ingest
+                        # ── Persist snapshot (ingest) ──────────────────────────
+                        try:
+                            _snap_ingest = build_kb_evidence_snapshot(_kb_entries_ingest, flow="ingest")
+                            _raw_existing_ingest = db.execute(
+                                "SELECT kb_evidence_json FROM tickets WHERE ticket_id = ?", (tid,)
+                            ).fetchone()
+                            _existing_ingest = (_raw_existing_ingest[0] if _raw_existing_ingest else None)
+                            _container_ingest = merge_kb_evidence_snapshot(_existing_ingest, _snap_ingest)
+                            db.execute(
+                                "UPDATE tickets SET kb_evidence_json = ? WHERE ticket_id = ?",
+                                (json.dumps(_container_ingest, ensure_ascii=False), tid),
+                            )
+                        except Exception as _snap_ingest_err:
+                            logger.warning(
+                                "KB snapshot save (ingest) failed for ticket %s: %s", tid, _snap_ingest_err
+                            )
                     except Exception:
                         pass
                     _pm_dec = build_pm_decision_for_ticket(
@@ -4160,16 +4182,36 @@ def ticket_detail(ticket_id):
     try:
         from ai.kb_retrieval import retrieve_relevant_kb_entries
         from ai.kb_evidence_display import build_kb_evidence_review
-        _kb_display_entries = retrieve_relevant_kb_entries(
-            db,
-            subject=ticket_dict.get("subject") or "",
-            summary=ticket_dict.get("description") or ticket_dict.get("compiled_thread") or "",
-            template_name=ticket_dict.get("template_name") or "",
-            workflow_name=ticket_dict.get("workflow_name") or "",
-        )
-        ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
+        from ai.kb_evidence_snapshot import load_kb_evidence_snapshot
+
+        _kb_container = load_kb_evidence_snapshot(ticket_dict.get("kb_evidence_json"))
+        ticket_dict["kb_evidence_snapshot"] = _kb_container
+
+        _latest_flow = _kb_container.get("latest_flow") or ""
+        _snap_entries = []
+        if _latest_flow and isinstance(_kb_container.get("snapshots"), dict):
+            _latest_snap = _kb_container["snapshots"].get(_latest_flow) or {}
+            _snap_entries = _latest_snap.get("entries") or []
+
+        if _snap_entries:
+            # Prefer saved snapshot — build display from snapshot entries
+            ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_snap_entries)
+            ticket_dict["kb_evidence_review_source"] = "snapshot"
+        else:
+            # Fall back to live retrieval
+            _kb_display_entries = retrieve_relevant_kb_entries(
+                db,
+                subject=ticket_dict.get("subject") or "",
+                summary=ticket_dict.get("description") or ticket_dict.get("compiled_thread") or "",
+                template_name=ticket_dict.get("template_name") or "",
+                workflow_name=ticket_dict.get("workflow_name") or "",
+            )
+            ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
+            ticket_dict["kb_evidence_review_source"] = "live"
     except Exception:
         ticket_dict["kb_evidence_review"] = {"has_data": False, "entries": [], "summary": {"count": 0}}
+        ticket_dict["kb_evidence_snapshot"] = {"snapshots": {}, "latest_flow": "", "updated_at": ""}
+        ticket_dict["kb_evidence_review_source"] = "live"
 
     return render_template("ticket.html", ticket=ticket_dict)
 
@@ -4528,6 +4570,11 @@ def generate_drafts(ticket_id):
         # ── Inject KB evidence summary into draft context ─────────────────────
         try:
             from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            from ai.kb_evidence_snapshot import (
+                build_kb_evidence_snapshot,
+                merge_kb_evidence_snapshot,
+                load_kb_evidence_snapshot,
+            )
             _kb_entries_draft = retrieve_relevant_kb_entries(
                 db,
                 subject=ticket["subject"] or "",
@@ -4541,6 +4588,23 @@ def generate_drafts(ticket_id):
                 logger.info(
                     f"Ticket {ticket_id}: {len(_kb_entries_draft)} KB evidence entries "
                     "injected into draft context"
+                )
+            # ── Persist snapshot (draft) ───────────────────────────────────────
+            try:
+                _snap_draft = build_kb_evidence_snapshot(_kb_entries_draft, flow="draft")
+                _raw_existing_draft = db.execute(
+                    "SELECT kb_evidence_json FROM tickets WHERE ticket_id = ?", (ticket_id,)
+                ).fetchone()
+                _existing_draft = (_raw_existing_draft[0] if _raw_existing_draft else None)
+                _container_draft = merge_kb_evidence_snapshot(_existing_draft, _snap_draft)
+                db.execute(
+                    "UPDATE tickets SET kb_evidence_json = ? WHERE ticket_id = ?",
+                    (json.dumps(_container_draft, ensure_ascii=False), ticket_id),
+                )
+                db.commit()
+            except Exception as _snap_draft_err:
+                logger.warning(
+                    f"KB snapshot save (draft) failed for ticket {ticket_id}: {_snap_draft_err}"
                 )
         except Exception as _kb_draft_err:
             logger.warning(
@@ -4781,6 +4845,11 @@ def regenerate_draft_pm(ticket_id):
         # ── Inject KB evidence summary into regeneration context ──────────────
         try:
             from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            from ai.kb_evidence_snapshot import (
+                build_kb_evidence_snapshot,
+                merge_kb_evidence_snapshot,
+                load_kb_evidence_snapshot,
+            )
             _kb_entries_regen = retrieve_relevant_kb_entries(
                 db,
                 subject=ticket["subject"] or "",
@@ -4794,6 +4863,23 @@ def regenerate_draft_pm(ticket_id):
                 logger.info(
                     f"Ticket {ticket_id}: {len(_kb_entries_regen)} KB evidence entries "
                     "injected into regeneration context"
+                )
+            # ── Persist snapshot (regeneration) ───────────────────────────────
+            try:
+                _snap_regen = build_kb_evidence_snapshot(_kb_entries_regen, flow="regeneration")
+                _raw_existing_regen = db.execute(
+                    "SELECT kb_evidence_json FROM tickets WHERE ticket_id = ?", (ticket_id,)
+                ).fetchone()
+                _existing_regen = (_raw_existing_regen[0] if _raw_existing_regen else None)
+                _container_regen = merge_kb_evidence_snapshot(_existing_regen, _snap_regen)
+                db.execute(
+                    "UPDATE tickets SET kb_evidence_json = ? WHERE ticket_id = ?",
+                    (json.dumps(_container_regen, ensure_ascii=False), ticket_id),
+                )
+                db.commit()
+            except Exception as _snap_regen_err:
+                logger.warning(
+                    f"KB snapshot save (regen) failed for ticket {ticket_id}: {_snap_regen_err}"
                 )
         except Exception as _kb_regen_err:
             logger.warning(
@@ -5833,6 +5919,11 @@ def prepare_analysis(ticket_id):
         # ── Inject KB evidence summary into analysis context ──────────────────
         try:
             from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            from ai.kb_evidence_snapshot import (
+                build_kb_evidence_snapshot,
+                merge_kb_evidence_snapshot,
+                load_kb_evidence_snapshot,
+            )
             _kb_entries_analysis = retrieve_relevant_kb_entries(
                 db,
                 subject=ticket["subject"] or "",
@@ -5846,6 +5937,23 @@ def prepare_analysis(ticket_id):
                 logger.info(
                     f"Ticket {ticket_id}: {len(_kb_entries_analysis)} KB evidence entries "
                     "injected into analysis context"
+                )
+            # ── Persist snapshot (analysis) ────────────────────────────────────
+            try:
+                _snap_analysis = build_kb_evidence_snapshot(_kb_entries_analysis, flow="analysis")
+                _raw_existing_analysis = db.execute(
+                    "SELECT kb_evidence_json FROM tickets WHERE ticket_id = ?", (ticket_id,)
+                ).fetchone()
+                _existing_analysis = (_raw_existing_analysis[0] if _raw_existing_analysis else None)
+                _container_analysis = merge_kb_evidence_snapshot(_existing_analysis, _snap_analysis)
+                db.execute(
+                    "UPDATE tickets SET kb_evidence_json = ? WHERE ticket_id = ?",
+                    (json.dumps(_container_analysis, ensure_ascii=False), ticket_id),
+                )
+                db.commit()
+            except Exception as _snap_analysis_err:
+                logger.warning(
+                    f"KB snapshot save (analysis) failed for ticket {ticket_id}: {_snap_analysis_err}"
                 )
         except Exception as _kb_analysis_err:
             logger.warning(
