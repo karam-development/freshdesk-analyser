@@ -3343,10 +3343,21 @@ def run_analysis_job():
                         ticket_data, code_brief=_pm_cb,
                         analysis=analysis.get("analysis", "") if isinstance(analysis, dict) else "",
                     )
+                    try:
+                        from ai.pm_learning import find_relevant_structured_pm_lessons
+                        _pm_ingest_lessons = find_relevant_structured_pm_lessons(
+                            db,
+                            ticket_subject=ticket_data.get("subject", ""),
+                            template_name=ticket_data.get("template_name", ""),
+                            workflow_name=ticket_data.get("workflow_name", ""),
+                        )
+                    except Exception:
+                        _pm_ingest_lessons = []
                     _pm_dec = build_pm_decision_for_ticket(
                         ticket_summary=_pm_summary,
                         current_behaviour=_pm_current,
                         evidence=_pm_evidence,
+                        structured_pm_lessons=_pm_ingest_lessons,
                     )
                     _pm_json = json.dumps(
                         {k: v for k, v in _pm_dec.items() if k != "_gate_results"},
