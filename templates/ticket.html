@@ -714,6 +714,16 @@
     <!-- RELEVANT KB EVIDENCE CARD -->
     <div class="card">
         <h3 class="card-heading">Relevant KB Evidence <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px;">
+            {% if ticket.kb_evidence_review_source == "snapshot" %}
+            <span style="font-size:0.72em;color:var(--text-muted);background:#f0fdf4;border:1px solid #bbf7d0;padding:1px 7px;border-radius:8px;">Source: stored snapshot</span>
+            {% else %}
+            <span style="font-size:0.72em;color:var(--text-muted);background:#f3f4f6;border:1px solid #e2e8f0;padding:1px 7px;border-radius:8px;">Source: live retrieval</span>
+            {% endif %}
+            {% if ticket.kb_evidence_snapshot and ticket.kb_evidence_snapshot.latest_flow %}
+            <span style="font-size:0.72em;color:var(--text-muted);background:#eff6ff;border:1px solid #bfdbfe;padding:1px 7px;border-radius:8px;">Latest flow: {{ ticket.kb_evidence_snapshot.latest_flow }}</span>
+            {% endif %}
+        </div>
         {% if ticket.kb_evidence_review and ticket.kb_evidence_review.has_data %}
         {% set kbe = ticket.kb_evidence_review %}
         {% set kbs = kbe.summary %}
