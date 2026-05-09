@@ -18,6 +18,7 @@ Returned structure::
           "evidence_type": str,
           "score": float,
           "matched_terms": list[str],   # max 8
+          "score_reasons": list[str],   # max 8; [] when absent/invalid
           "snippet": str,               # max 220 chars
           "badge_label": str,
           "severity": str,
@@ -43,6 +44,7 @@ from typing import List
 
 _MAX_ENTRIES = 8
 _MAX_TERMS = 8
+_MAX_REASONS = 8
 _SNIPPET_MAX = 220
 
 _SEVERITY_MAP = {
@@ -123,6 +125,12 @@ def build_kb_evidence_review(entries: List[dict]) -> dict:
             raw_terms = []
         matched_terms = [str(t) for t in raw_terms[:_MAX_TERMS]]
 
+        # Preserve score_reasons (defensive: missing/None/non-list → [])
+        raw_reasons = raw.get("score_reasons") or []
+        if not isinstance(raw_reasons, list):
+            raw_reasons = []
+        score_reasons = [str(r) for r in raw_reasons[:_MAX_REASONS]]
+
         severity = _SEVERITY_MAP.get(evidence_type, "neutral")
         badge_label = _BADGE_LABEL_MAP.get(evidence_type, "General")
 
@@ -134,6 +142,7 @@ def build_kb_evidence_review(entries: List[dict]) -> dict:
             "evidence_type": evidence_type,
             "score": score,
             "matched_terms": matched_terms,
+            "score_reasons": score_reasons,
             "snippet": snippet,
             "badge_label": badge_label,
             "severity": severity,
