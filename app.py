@@ -4186,6 +4186,7 @@ def ticket_detail(ticket_id):
         from ai.kb_snapshot_display import build_kb_snapshot_flow_review
         from ai.kb_snapshot_diff import build_kb_snapshot_diff_review
         from ai.kb_evidence_quality import assess_kb_evidence_quality
+        from ai.safe_to_send_review import build_safe_to_send_review
 
         _kb_container = load_kb_evidence_snapshot(ticket_dict.get("kb_evidence_json"))
         ticket_dict["kb_evidence_snapshot"] = _kb_container
@@ -4259,6 +4260,26 @@ def ticket_detail(ticket_id):
         ticket_dict["kb_evidence_quality_review"] = {
             "has_data": False, "overall_quality": "none", "quality_score": 0,
             "signals": [], "summary": {"entry_count": 0},
+        }
+
+    try:
+        ticket_dict["safe_to_send_review"] = build_safe_to_send_review(
+            pm_decision=ticket_dict.get("pm_decision"),
+            pm_guard_warnings=ticket_dict.get("pm_guard_warnings"),
+            existing_solution_review=ticket_dict.get("existing_solution_review"),
+            kb_evidence_quality_review=ticket_dict.get("kb_evidence_quality_review"),
+            kb_snapshot_diff_review=ticket_dict.get("kb_snapshot_diff_review"),
+            qa_issues=ticket_dict.get("qa_issues"),
+            draft_text=ticket_dict.get("draft_response_clean") or ticket_dict.get("draft_response") or "",
+        )
+    except Exception:
+        ticket_dict["safe_to_send_review"] = {
+            "has_data": False, "status": "needs_review", "risk_level": "medium",
+            "score": 0, "reasons": [],
+            "summary": {
+                "has_blockers": False, "has_medium_issues": False,
+                "blocker_count": 0, "medium_count": 0, "info_count": 0, "passed_checks": 0,
+            },
         }
 
     return render_template("ticket.html", ticket=ticket_dict)
