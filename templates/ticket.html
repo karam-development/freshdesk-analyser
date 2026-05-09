@@ -1421,6 +1421,53 @@
             </form>
         </div>
 
+        <!-- SAFE TO SEND DRAFT BANNER -->
+        {% if ticket.safe_to_send_display %}
+        {% set std = ticket.safe_to_send_display %}
+        <div id="safe-to-send-draft-banner"
+             data-safe-to-send-status="{{ std.status }}"
+             data-copy-warning="{{ std.copy_warning }}"
+             style="margin:10px 0 12px 0;padding:10px 14px;border-radius:6px;border-left:4px solid
+                {% if std.severity == 'success' %}#22863a
+                {% elif std.severity == 'danger' %}#cb2431
+                {% else %}#b08800{% endif %};
+                background:
+                {% if std.severity == 'success' %}#f0faf3
+                {% elif std.severity == 'danger' %}#fff5f5
+                {% else %}#fffbea{% endif %};">
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span class="badge badge--{% if std.severity == 'success' %}success{% elif std.severity == 'danger' %}danger{% else %}warning{% endif %}"
+                      style="font-size:0.82em;white-space:nowrap;">
+                    {% if std.severity == 'success' %}✓{% elif std.severity == 'danger' %}✗{% else %}⚠{% endif %}
+                    {{ std.badge_label }}
+                </span>
+                <span style="font-size:0.82em;font-weight:600;color:
+                    {% if std.severity == 'success' %}#22863a
+                    {% elif std.severity == 'danger' %}#cb2431
+                    {% else %}#b08800{% endif %};">
+                    {{ std.score }}/100
+                </span>
+                <span style="font-size:0.85em;font-weight:600;">{{ std.banner_title }}</span>
+                <span style="font-size:0.82em;color:var(--text-muted);">— {{ std.banner_message }}</span>
+            </div>
+            {% if std.top_reasons %}
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;">
+                {% for reason in std.top_reasons %}
+                <span style="font-size:0.76em;padding:2px 8px;border-radius:12px;
+                    background:{% if reason.severity in ('blocker','danger') %}#fde8e8{% elif reason.severity in ('medium','warning') %}#fef3cd{% else %}#e8f4fd{% endif %};
+                    color:{% if reason.severity in ('blocker','danger') %}#9b1c1c{% elif reason.severity in ('medium','warning') %}#78350f{% else %}#1e40af{% endif %};">
+                    {{ reason.title }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if std.copy_warning %}
+            <p style="margin:6px 0 0 0;font-size:0.78em;color:var(--text-muted);font-style:italic;">{{ std.copy_warning }}</p>
+            {% endif %}
+        </div>
+        {% endif %}
+        <!-- END SAFE TO SEND DRAFT BANNER -->
+
         <form id="ticket-form" method="POST" action="{{ url_for('update_ticket', ticket_id=ticket.ticket_id) }}">
             <!-- FR editor -->
             <div id="editor-fr" class="draft-editor">
@@ -1632,6 +1679,16 @@
 
     /** Copy the clean draft (PM guard markers excluded) for the given language */
     function copyCleanDraft(lang) {
+        // Non-blocking copy confirmation for risky safe-to-send states
+        var banner = document.getElementById('safe-to-send-draft-banner');
+        if (banner) {
+            var sts = banner.getAttribute('data-safe-to-send-status') || '';
+            if (sts === 'do_not_send') {
+                if (!confirm('This draft is marked Do not send yet. Copy anyway?')) return;
+            } else if (sts === 'needs_review') {
+                if (!confirm('This draft has review warnings. Copy anyway?')) return;
+            }
+        }
         var textarea = document.getElementById('textarea-' + lang);
         if (!textarea) return;
         var cleanText = (textarea.dataset.cleanContent !== undefined && textarea.dataset.cleanContent !== '')
