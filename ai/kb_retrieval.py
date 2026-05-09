@@ -11,35 +11,50 @@ extract_ticket_keywords(subject, summary, template_name, workflow_name) -> list[
     Derive a de-duplicated keyword list from ticket metadata.
 
 retrieve_relevant_kb_entries(db, subject, summary, template_name,
-                             workflow_name, limit=8) -> list[dict]
+                             workflow_name, limit=8, min_score=3) -> list[dict]
     Query the knowledge_base table and return the top-N scored entries.
     Each entry dict has: id, category, title, content, score, matched_terms,
-    evidence_type.
+    evidence_type, score_reasons.
 
 summarize_kb_evidence(entries, max_chars=2000) -> str
     Format entries into a compact prompt block or return "" when empty.
 
 derive_kb_evidence_signals(entries) -> dict
     Aggregate boolean signals from a list of retrieved KB entries.
+
+Scoring model (PR 22)
+---------------------
+  +5  exact normalised subject phrase in title (multi-word subjects only)
+  +5  template_name phrase match in title / content / category
+  +4  keyword in title
+  +4  workflow_name phrase match in title / content / category
+  +3  keyword in category (not in title)
+  +3  workaround / setting context boost (ticket has wording/config context)
+  +2  legal context boost (legal ticket + legal entry + ≥1 other match)
+  +1  keyword in content (not in title or category)
+  −2  legal entry but no legal signal in ticket (conservative penalty)
+
+  min_score = 3  (default): single weak content-only matches are suppressed.
+
+Evidence-type priority (legal > existing_setting > workaround > product > terminology > general)
 """
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List
 
-# ── Evidence-type classification ──────────────────────────────────────────────
+# ── Evidence-type category signals ────────────────────────────────────────────
 
 _LEGAL_CATEGORY_TERMS = [
-    "legal", "law", "regulation", "compliance", "mandatory",
-    "statutory", "regulatory", "obligation", "gdpr", "lgpd", "hipaa",
-]
-_WORKAROUND_CATEGORY_TERMS = [
-    "workaround", "guide", "how-to", "how to", "tutorial",
-    "procedure", "instructions", "tip", "trick",
+    "legal", "law", "regulation", "statutory", "regulatory",
+    "mandatory", "obligation", "gdpr", "lgpd", "hipaa", "rgd", "ecdf",
 ]
 _SETTING_CATEGORY_TERMS = [
-    "setting", "configuration", "feature", "option", "parameter",
-    "config", "setup", "preference",
+    "setting", "configuration", "configurable", "feature", "option",
+    "parameter", "config", "setup", "preference", "toggle",
+]
+_WORKAROUND_CATEGORY_TERMS = [
+    "workaround", "workarounds", "bypass", "alternative",
 ]
 _PRODUCT_CATEGORY_TERMS = [
     "product", "standard", "default", "behaviour", "behavior",
@@ -47,42 +62,81 @@ _PRODUCT_CATEGORY_TERMS = [
 ]
 _TERMINOLOGY_CATEGORY_TERMS = [
     "terminology", "glossary", "label", "wording", "term",
-    "vocabulary", "definition", "lexicon",
+    "vocabulary", "definition", "lexicon", "translation",
 ]
 
-# Content-level clue terms (for evidence_type when category is ambiguous)
+# ── Evidence-type content signals ─────────────────────────────────────────────
+
+# Legal — requires strong explicit legal terminology
 _LEGAL_CONTENT_TERMS = [
-    "required by law", "legally required", "legal requirement",
-    "mandatory by regulation", "must include", "must display",
-    "statutory requirement", "compliance requirement",
-    "exigence légale", "obligation légale", "requis par la loi",
+    "required by law", "legally required", "legal requirement", "legal obligation",
+    "mandatory by regulation", "statutory requirement",
+    "obligation légale", "exigence légale", "requis par la loi",
+    "rgd", "ecdf", "accounting requirement",
 ]
+
+# Workaround — specific workaround / alternative language
 _WORKAROUND_CONTENT_TERMS = [
     "workaround", "bypass", "alternative approach", "can be done by",
     "can be achieved by", "there is a way to",
+    "temporary solution", "can already be done", "manual workaround",
+    "instead of", "alternative to",
     "contournement", "solution de contournement",
 ]
+
+# Existing setting — configuration / option already available
 _SETTING_CONTENT_TERMS = [
-    "existing setting", "there is a setting", "configuration option",
-    "you can configure", "already available", "option exists",
-    "can be configured", "use the setting",
+    "existing setting", "setting already exists", "there is a setting",
+    "configuration option", "you can configure", "already available",
+    "option exists", "can be configured", "use the setting",
+    "configurable", "toggle", "dropdown", "option available",
     "paramètre existant", "option de configuration",
 ]
 
+# Product — describes current product behaviour / standard
+_PRODUCT_CONTENT_TERMS = [
+    "current behaviour", "template pattern", "product standard",
+    "existing feature", "supported", "not supported",
+    "working as designed", "working as intended", "by design",
+    "comportement actuel", "comportement standard",
+]
 
-# ── Stop-words (filtered out from keywords) ───────────────────────────────────
+# ── Ticket context detection (for scoring boosts/penalties) ──────────────────
+
+# Terms that indicate the ticket is about a legal/regulatory matter
+_TICKET_LEGAL_SIGNAL_TERMS = [
+    "law", "legal", "article", "regulation", "rgd", "ecdf",
+    "mandatory", "obligatory", "obligation", "statutory",
+    "required by law", "accounting requirement",
+]
+
+# Terms that indicate the ticket wants a workaround / configurable change
+_TICKET_WORKAROUND_CONTEXT_TERMS = [
+    "workaround", "alternative", "setting", "configuration", "configure",
+    "configurable", "option", "editable", "custom", "bypass",
+    "instead", "different approach",
+]
+
+# ── Stop-words ────────────────────────────────────────────────────────────────
 
 _STOP_WORDS = {
+    # Common English function words
     "the", "a", "an", "is", "it", "in", "on", "at", "to", "of", "for",
     "and", "or", "but", "not", "with", "this", "that", "from", "are",
     "was", "be", "been", "has", "have", "had", "do", "does", "did",
     "will", "would", "can", "could", "should", "may", "might",
     "we", "our", "they", "their", "he", "she", "you", "your", "its",
+    # Common French function words
     "le", "la", "les", "de", "du", "des", "un", "une", "et", "ou",
     "en", "au", "aux", "par", "pour", "sur", "dans", "avec", "est",
     "sont", "que", "qui", "ce", "se", "il", "elle", "nous", "vous",
-    # short noise words
+    # Very short noise tokens
     "s", "t", "d", "l", "m", "n", "j", "y",
+    # Generic support / ticket wording (PR 22 additions)
+    "issue", "problem", "request", "question", "client", "customer",
+    "ticket", "note", "template", "change", "changes", "wrong", "error",
+    "please", "need", "needs", "want", "wants", "possible",
+    "display", "show", "showing",
 }
 
 # ── Private helpers ────────────────────────────────────────────────────────────
@@ -94,21 +148,39 @@ def _contains_any(text: str, terms: list) -> bool:
 
 
 def _classify_evidence_type(category: str, content: str) -> str:
-    """Return one of: legal_evidence | workaround_evidence | existing_setting_evidence
-    | product_evidence | terminology_evidence | general_evidence."""
+    """Classify a KB entry.
+
+    Priority (first match wins):
+      legal_evidence (requires strong legal terms)
+      → existing_setting_evidence
+      → workaround_evidence
+      → product_evidence
+      → terminology_evidence
+      → general_evidence
+    """
     cat = (category or "").lower()
     cnt = (content or "").lower()
 
+    # Legal — category OR strong content terms
     if _contains_any(cat, _LEGAL_CATEGORY_TERMS) or _contains_any(cnt, _LEGAL_CONTENT_TERMS):
         return "legal_evidence"
-    if _contains_any(cat, _WORKAROUND_CATEGORY_TERMS) or _contains_any(cnt, _WORKAROUND_CONTENT_TERMS):
-        return "workaround_evidence"
+
+    # Existing setting — category OR specific content terms
     if _contains_any(cat, _SETTING_CATEGORY_TERMS) or _contains_any(cnt, _SETTING_CONTENT_TERMS):
         return "existing_setting_evidence"
-    if _contains_any(cat, _PRODUCT_CATEGORY_TERMS):
+
+    # Workaround
+    if _contains_any(cat, _WORKAROUND_CATEGORY_TERMS) or _contains_any(cnt, _WORKAROUND_CONTENT_TERMS):
+        return "workaround_evidence"
+
+    # Product behaviour / standard
+    if _contains_any(cat, _PRODUCT_CATEGORY_TERMS) or _contains_any(cnt, _PRODUCT_CONTENT_TERMS):
         return "product_evidence"
+
+    # Terminology / glossary
     if _contains_any(cat, _TERMINOLOGY_CATEGORY_TERMS):
         return "terminology_evidence"
+
     return "general_evidence"
 
 
@@ -128,10 +200,13 @@ def extract_ticket_keywords(
     template_name: str = "",
     workflow_name: str = "",
 ) -> List[str]:
-    """Return a de-duplicated keyword list derived from ticket metadata.
+    """Return a de-duplicated keyword list from ticket metadata.
 
-    Short words (<= 2 chars) and common stop-words are removed.
-    Template/workflow names are kept intact as multi-word strings when present.
+    Filters:
+    - Stop-words and very short tokens (≤ 2 chars).
+    - Generic support/ticket words (issue, problem, client, display, etc.).
+    - Multi-word template/workflow phrases are preserved as searchable tokens
+      even when their individual words are generic.
     """
     seen: set = set()
     keywords: list = []
@@ -142,23 +217,28 @@ def extract_ticket_keywords(
             seen.add(token)
             keywords.append(token)
 
-    # Normalised individual tokens from subject + summary
+    # Individual tokens from subject + summary
     combined = f"{subject} {summary}"
     for word in normalize_text(combined).split():
         if len(word) > 2 and word not in _STOP_WORDS:
             _add(word)
 
-    # Preserve template/workflow names as searchable phrases
+    # Template/workflow: add as a full phrase AND as individual meaningful tokens.
+    # The phrase is always added (even if it contains generic-ish words) because
+    # specificity comes from the combination, not individual words.
     if template_name:
-        _add(normalize_text(template_name))
-        # Also add individual tokens from the name
-        for w in normalize_text(template_name).split():
+        phrase = normalize_text(template_name)
+        if phrase:
+            _add(phrase)  # multi-word phrase for phrase-level scoring
+        for w in phrase.split():
             if len(w) > 2 and w not in _STOP_WORDS:
                 _add(w)
 
     if workflow_name:
-        _add(normalize_text(workflow_name))
-        for w in normalize_text(workflow_name).split():
+        phrase = normalize_text(workflow_name)
+        if phrase:
+            _add(phrase)
+        for w in phrase.split():
             if len(w) > 2 and w not in _STOP_WORDS:
                 _add(w)
 
@@ -172,22 +252,20 @@ def retrieve_relevant_kb_entries(
     template_name: str = "",
     workflow_name: str = "",
     limit: int = 8,
+    min_score: float = 3.0,
 ) -> List[dict]:
-    """Query the knowledge_base table and return the top-N scored entries.
+    """Query the knowledge_base table and return top-N scored entries.
 
-    Scoring rules (additive):
-      +4  exact normalised subject phrase in title
-      +3  keyword exact-match in title
-      +2  keyword exact-match in content
-      +2  template_name / workflow_name match in title or content
-      +1  keyword appears anywhere in content (partial)
+    Scoring (additive, see module docstring for full table).
+    Entries with score < min_score are discarded to suppress noise.
 
     Returns
     -------
     list of dict
-        Each dict has: id, category, title, content, score (int),
-        matched_terms (list[str]), evidence_type (str).
-        Ordered by score descending. Empty list on any error.
+        Keys: id, category, title, content, score (float), matched_terms
+        (list[str]), evidence_type (str), score_reasons (list[str]).
+        Ordered by score descending then id ascending.
+        Empty list on any DB error.
     """
     try:
         rows = db.execute(
@@ -210,6 +288,11 @@ def retrieve_relevant_kb_entries(
     norm_template = normalize_text(template_name)
     norm_workflow = normalize_text(workflow_name)
 
+    # Ticket-level context flags (used for evidence type boosts / penalties)
+    ticket_text = normalize_text(f"{subject} {summary}")
+    has_legal_signal = _contains_any(ticket_text, _TICKET_LEGAL_SIGNAL_TERMS)
+    has_workaround_context = _contains_any(ticket_text, _TICKET_WORKAROUND_CONTEXT_TERMS)
+
     scored: list = []
 
     for row in rows:
@@ -219,46 +302,90 @@ def retrieve_relevant_kb_entries(
 
         norm_title = normalize_text(title_raw)
         norm_content = normalize_text(content_raw)
+        norm_category = normalize_text(category_raw)
 
-        score = 0
+        score: float = 0.0
+        score_reasons: list = []
         matched: list = []
 
-        # Exact normalised subject phrase match
-        if norm_subject and norm_subject in norm_title:
-            score += 4
+        # ── Phrase-level matches ──────────────────────────────────────────────
+
+        # Exact normalised subject phrase in title only (multi-word subjects).
+        # Content matching is handled entirely by the per-keyword loop to avoid
+        # double-counting. Single-word subjects are also covered by the keyword loop.
+        if norm_subject and " " in norm_subject and norm_subject in norm_title:
+            score += 5
+            score_reasons.append("subject_phrase:title +5")
             matched.append(f"subject_in_title:{norm_subject[:30]}")
-        elif norm_subject and norm_subject in norm_content:
-            score += 2
-            matched.append(f"subject_in_content:{norm_subject[:30]}")
 
-        # Template / workflow name match
-        if norm_template and (norm_template in norm_title or norm_template in norm_content):
-            score += 2
-            matched.append(f"template:{template_name[:30]}")
+        # Template phrase match (title / content / category)
+        if norm_template:
+            if (norm_template in norm_title
+                    or norm_template in norm_content
+                    or norm_template in norm_category):
+                score += 5
+                score_reasons.append("template_phrase:match +5")
+                matched.append(f"template:{template_name[:30]}")
 
-        if norm_workflow and (norm_workflow in norm_title or norm_workflow in norm_content):
-            score += 2
-            matched.append(f"workflow:{workflow_name[:30]}")
+        # Workflow phrase match
+        if norm_workflow:
+            if (norm_workflow in norm_title
+                    or norm_workflow in norm_content
+                    or norm_workflow in norm_category):
+                score += 4
+                score_reasons.append("workflow_phrase:match +4")
+                matched.append(f"workflow:{workflow_name[:30]}")
 
-        # Per-keyword scoring
+        # ── Per-keyword scoring ───────────────────────────────────────────────
         for kw in keywords:
             if len(kw) < 3:
                 continue
             norm_kw = normalize_text(kw)
             if not norm_kw:
                 continue
+            # Skip multi-word phrases — already handled at phrase level above
+            if " " in norm_kw:
+                continue
 
             in_title = norm_kw in norm_title
+            in_category = norm_kw in norm_category
             in_content = norm_kw in norm_content
 
             if in_title:
-                score += 3
+                score += 4
+                score_reasons.append(f"title:{kw} +4")
                 matched.append(f"title:{kw}")
+            elif in_category:
+                score += 3
+                score_reasons.append(f"category:{kw} +3")
+                matched.append(f"category:{kw}")
             elif in_content:
                 score += 1
+                score_reasons.append(f"content:{kw} +1")
                 matched.append(f"content:{kw}")
 
-        if score > 0:
+        # ── Evidence type context boost / penalty ─────────────────────────────
+        ev_type = _classify_evidence_type(category_raw, content_raw)
+
+        if ev_type in ("workaround_evidence", "existing_setting_evidence"):
+            if has_workaround_context:
+                score += 3
+                score_reasons.append("evidence_type:workaround_context +3")
+                matched.append("evidence_type:context_boost")
+
+        elif ev_type == "legal_evidence":
+            if has_legal_signal and score > 0:
+                # Contextual boost: ticket is about a legal matter AND entry matched
+                score += 2
+                score_reasons.append("evidence_type:legal_context +2")
+                matched.append("evidence_type:legal_boost")
+            elif not has_legal_signal:
+                # Conservative penalty: do not surface legal entries for non-legal tickets
+                score -= 2
+                score_reasons.append("legal_no_context_penalty -2")
+
+        # ── Min-score filter ──────────────────────────────────────────────────
+        if score >= min_score:
             scored.append({
                 "id": row["id"],
                 "category": category_raw,
@@ -266,10 +393,11 @@ def retrieve_relevant_kb_entries(
                 "content": content_raw,
                 "score": score,
                 "matched_terms": matched,
-                "evidence_type": _classify_evidence_type(category_raw, content_raw),
+                "evidence_type": ev_type,
+                "score_reasons": score_reasons,
             })
 
-    # Sort by score descending; stable secondary sort by id ascending
+    # Sort by score descending; stable secondary key: id ascending
     scored.sort(key=lambda e: (-e["score"], e["id"]))
     return scored[:limit]
 
@@ -281,12 +409,12 @@ def summarize_kb_evidence(
     """Format retrieved KB entries into a compact prompt block.
 
     Returns an empty string when *entries* is empty.
+    Tolerates extra keys such as ``score_reasons`` in entries.
 
     Format::
 
         RELEVANT KB EVIDENCE:
         - [evidence_type | score 5] Title: first 200 chars of content...
-        - ...
     """
     if not entries:
         return ""
@@ -310,7 +438,7 @@ def summarize_kb_evidence(
             break
 
         lines.append(line)
-        total += len(line) + 1  # +1 for newline
+        total += len(line) + 1
 
     if not lines:
         return ""
@@ -321,17 +449,19 @@ def summarize_kb_evidence(
 def derive_kb_evidence_signals(entries: List[dict]) -> dict:
     """Aggregate boolean signals from a list of retrieved KB entries.
 
+    Unaffected by the addition of ``score_reasons`` to entry dicts.
+
     Returns
     -------
     dict with keys:
-        has_legal_evidence          : bool
-        has_workaround_evidence     : bool
+        has_legal_evidence            : bool
+        has_workaround_evidence       : bool
         has_existing_setting_evidence : bool
-        has_product_evidence        : bool
-        has_terminology_evidence    : bool
-        kb_evidence_types           : list[str]  (unique evidence_types found)
-        kb_evidence_count           : int
-        matched_terms               : list[str]  (all unique matched_terms)
+        has_product_evidence          : bool
+        has_terminology_evidence      : bool
+        kb_evidence_types             : list[str]
+        kb_evidence_count             : int
+        matched_terms                 : list[str]
     """
     if not entries:
         return {
