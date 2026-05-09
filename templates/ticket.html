@@ -711,6 +711,47 @@
         {% endif %}
     </div>
 
+    <!-- STRUCTURED PM LESSONS USED CARD -->
+    {% if ticket.structured_pm_lessons_used %}
+    <div class="card">
+        <h3 class="card-heading">Structured PM Lessons Used <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Instruction</th>
+                        <th>Confidence</th>
+                        <th>Hits</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sl in ticket.structured_pm_lessons_used %}
+                    <tr>
+                        <td>
+                            <span class="badge" style="font-size:0.72em;background:
+                                {% if sl.lesson_type == 'legal_reference_removed' %}#fee2e2
+                                {% elif sl.lesson_type == 'global_change_to_editable' %}#fef3c7
+                                {% elif sl.lesson_type in ('dev_to_support_guidance', 'workaround_added', 'existing_solution_added') %}#d1fae5
+                                {% elif sl.lesson_type == 'bug_feature_framing' %}#fce7f3
+                                {% elif sl.lesson_type == 'answer_depth_shortened' %}#e0e7ff
+                                {% elif sl.lesson_type == 'classification_correction' %}#ede9fe
+                                {% else %}#f3f4f6{% endif %};
+                                color:var(--text);">{{ sl.lesson_type }}</span>
+                        </td>
+                        <td style="max-width:380px;font-size:0.82em;">{{ sl.instruction }}</td>
+                        <td style="font-size:0.82em;{% if (sl.confidence or 0) >= 0.8 %}color:var(--success,#38a169);font-weight:600;{% elif (sl.confidence or 0) >= 0.65 %}color:var(--warning-color,#d97706);{% else %}color:var(--text-muted);{% endif %}">
+                            {{ "%.0f"|format((sl.confidence or 0) * 100) }}%
+                        </td>
+                        <td style="font-size:0.85em;font-weight:600;">{{ sl.hit_count or 1 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- RICE PRIORITIZATION SECTION -->
     <div class="card full">
         <div class="card-header-with-badge">

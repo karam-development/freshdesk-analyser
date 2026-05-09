@@ -25,6 +25,7 @@ def build_pm_decision_for_ticket(
     kb_brief: str = "",
     code_brief: str = "",
     research_brief: str = "",
+    structured_pm_lessons: Optional[list] = None,
 ) -> dict:
     """Run all PM decision gates for a ticket and return a validated PMDecision dict.
 
@@ -49,6 +50,10 @@ def build_pm_decision_for_ticket(
     research_brief:
         Optional — plain-text research / investigation results; fed to the existing
         solution detector.
+    structured_pm_lessons:
+        Optional — list of active structured PM lesson dicts retrieved from DB.
+        Derived signals are added to evidence and gate_results conservatively;
+        they guide but never override hard evidence.
 
     Returns
     -------
@@ -120,6 +125,22 @@ def build_pm_decision_for_ticket(
     ):
         enriched_evidence["mentions_existing_workaround"] = True
 
+    # ── Integrate structured PM lesson signals (conservative, additive) ────────
+    # Lessons guide/nudge gates; they never override hard evidence (bug, mandatory).
+    _lesson_signals: dict = {}
+    _lesson_types: list = []
+    if structured_pm_lessons:
+        try:
+            from ai.pm_learning import derive_pm_lesson_signals
+            _derived = derive_pm_lesson_signals(structured_pm_lessons)
+            _lesson_signals = _derived
+            _lesson_types = _derived.get("lesson_types", [])
+            # Add to enriched_evidence so gates can read them
+            enriched_evidence["structured_lesson_signals"] = _lesson_signals
+            enriched_evidence["structured_lesson_types"] = _lesson_types
+        except Exception as _ls_exc:
+            logger.warning("structured lesson signal derivation failed: %s", _ls_exc)
+
     dn: dict = {}
     try:
         decision_context = {
@@ -139,6 +160,11 @@ def build_pm_decision_for_ticket(
         "global_change_risk": gr,
         "development_need": dn,
         "existing_solution": es,
+        "structured_pm_lessons": {
+            "lesson_count": len(structured_pm_lessons) if structured_pm_lessons else 0,
+            "lesson_types": _lesson_types,
+            "signals": _lesson_signals,
+        },
     }
 
     # ── Build evidence_used list ──────────────────────────────────────────────
@@ -159,6 +185,8 @@ def build_pm_decision_for_ticket(
         evidence_used.append("research_brief")
     if es.get("has_existing_solution"):
         evidence_used.append("existing_solution_detector")
+    if structured_pm_lessons:
+        evidence_used.append("structured_pm_lessons")
 
     # ── Combine gate results into a final PMDecision ──────────────────────────
     decision = build_pm_decision_from_gates(

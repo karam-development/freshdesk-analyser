@@ -131,6 +131,26 @@ def evaluate_development_need(
             ),
         }
 
+    # ── Priority 4 (lesson signal): prefer_support_guidance + detector signal ─
+    # If structured PM lessons suggest support guidance AND the existing-solution
+    # detector found at least some existing solution (any type), treat as
+    # support guidance.  Requires BOTH signals to stay conservative.
+
+    _lesson_sigs = evidence.get("structured_lesson_signals", {})
+    if (
+        _lesson_sigs.get("prefer_support_guidance")
+        and existing_solution.get("has_existing_solution")
+    ):
+        return {
+            "needs_development": False,
+            "development_type": "support_guidance",
+            "recommended_action": "explain_workaround",
+            "reason": (
+                "Structured PM lesson history and existing-solution detector both "
+                "suggest support guidance is sufficient — no development needed."
+            ),
+        }
+
     # ── Bug — keyword fallback ────────────────────────────────────────────────
 
     if any(kw in combined for kw in _BUG_KEYWORDS):

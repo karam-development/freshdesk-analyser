@@ -306,6 +306,148 @@ def extract_structured_pm_lessons(
     return lessons
 
 
+# ── Lesson → signal mapping ───────────────────────────────────────────────────
+
+_LESSON_SIGNAL_MAP: dict = {
+    "legal_reference_removed":  "avoid_legal_references",
+    "global_change_to_editable": "prefer_make_editable",
+    "dev_to_support_guidance":   "prefer_support_guidance",
+    "workaround_added":          "prefer_support_guidance",
+    "bug_feature_framing":       "prefer_bug_framing",
+    "answer_depth_shortened":    "prefer_short_answer",
+    "existing_solution_added":   "prefer_existing_solution",
+}
+
+
+def find_relevant_structured_pm_lessons(
+    db,
+    ticket_subject: str = "",
+    template_name: str = "",
+    workflow_name: str = "",
+    limit: int = 8,
+) -> list:
+    """Return active structured PM lessons relevant to this ticket.
+
+    Priority order (SQL ORDER BY):
+      1. Same template_name (non-empty match)
+      2. Same workflow_name (non-empty match)
+      3. Highest hit_count
+      4. Highest confidence
+      5. Newest created_at
+
+    Returns [] defensively on any error or missing table.
+    """
+    if db is None:
+        return []
+    try:
+        tmpl = (template_name or "").strip()
+        wf = (workflow_name or "").strip()
+        rows = db.execute(
+            """
+            SELECT * FROM pm_structured_lessons
+            WHERE active = 1
+            ORDER BY
+                CASE WHEN template_name = ? AND ? != '' THEN 0 ELSE 1 END,
+                CASE WHEN workflow_name  = ? AND ? != '' THEN 0 ELSE 1 END,
+                hit_count  DESC,
+                confidence DESC,
+                created_at DESC
+            LIMIT ?
+            """,
+            (tmpl, tmpl, wf, wf, limit),
+        ).fetchall()
+        result = []
+        for row in rows:
+            result.append(dict(row) if hasattr(row, "keys") else row)
+        return result
+    except Exception as exc:
+        logger.warning("find_relevant_structured_pm_lessons failed: %s", exc)
+        return []
+
+
+def format_structured_pm_lessons_for_prompt(lessons: list) -> str:
+    """Format active structured PM lessons as a concise prompt block.
+
+    Returns "" when lessons is empty or all instructions are blank.
+
+    Format::
+
+        STRUCTURED PM LESSONS:
+        - [lesson_type, XX%, hits N] instruction text
+    """
+    if not lessons:
+        return ""
+    lines = ["STRUCTURED PM LESSONS:"]
+    for lesson in lessons[:8]:
+        ltype = lesson.get("lesson_type") or "unknown"
+        conf  = lesson.get("confidence") or 0.0
+        hits  = lesson.get("hit_count")  or 1
+        instr = (lesson.get("instruction") or "").strip()
+        if not instr:
+            continue
+        conf_pct = int(round(float(conf) * 100))
+        lines.append(f"- [{ltype}, {conf_pct}%, hits {hits}] {instr}")
+    if len(lines) == 1:
+        return ""
+    return "\n".join(lines)
+
+
+def derive_pm_lesson_signals(lessons: list) -> dict:
+    """Derive deterministic aggregate boolean signals from a list of lessons.
+
+    Returns::
+
+        {
+          "avoid_legal_references": bool,
+          "prefer_make_editable":   bool,
+          "prefer_support_guidance": bool,
+          "prefer_bug_framing":     bool,
+          "prefer_short_answer":    bool,
+          "prefer_existing_solution": bool,
+          "lesson_count":  int,
+          "lesson_types":  list[str],
+        }
+
+    Mapping rules:
+    - legal_reference_removed       → avoid_legal_references
+    - global_change_to_editable     → prefer_make_editable
+    - dev_to_support_guidance /
+      workaround_added              → prefer_support_guidance
+    - bug_feature_framing           → prefer_bug_framing
+    - answer_depth_shortened        → prefer_short_answer
+    - existing_solution_added       → prefer_existing_solution
+    - classification_correction     → derived from instruction content only
+    """
+    signals: dict = {
+        "avoid_legal_references":  False,
+        "prefer_make_editable":    False,
+        "prefer_support_guidance": False,
+        "prefer_bug_framing":      False,
+        "prefer_short_answer":     False,
+        "prefer_existing_solution": False,
+        "lesson_count": len(lessons),
+        "lesson_types": [],
+    }
+    seen_types: set = set()
+    for lesson in lessons:
+        ltype = lesson.get("lesson_type") or "unknown"
+        seen_types.add(ltype)
+        mapped = _LESSON_SIGNAL_MAP.get(ltype)
+        if mapped:
+            signals[mapped] = True
+        # classification_correction: infer signal from instruction text
+        if ltype == "classification_correction":
+            instr = (lesson.get("instruction") or "").lower()
+            if "make_editable" in instr:
+                signals["prefer_make_editable"] = True
+            elif "workaround" in instr or "support" in instr:
+                signals["prefer_support_guidance"] = True
+            elif "bug" in instr:
+                signals["prefer_bug_framing"] = True
+    signals["lesson_types"] = sorted(seen_types)
+    return signals
+
+
 def upsert_structured_pm_lesson(
     db,
     source_ticket_id,

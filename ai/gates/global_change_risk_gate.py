@@ -130,6 +130,25 @@ def evaluate_global_change_risk(
             ),
         }
 
+    # ── Lesson signal nudge: prefer_make_editable (only in unclear fallback) ───
+    # If structured PM lessons say prefer_make_editable and no mandatory legal
+    # status was found, nudge from unclear/needs_analysis to medium/make_editable.
+    # This only fires if ALL earlier rules (which use hard evidence) did not match.
+
+    _prefer_editable = evidence.get("structured_lesson_signals", {}).get(
+        "prefer_make_editable", False
+    )
+    if _prefer_editable and legal_status not in ("mandatory", "accounting_required"):
+        return {
+            "global_change_risk": "medium",
+            "safe_to_change_default": False,
+            "recommended_action": "make_editable",
+            "reason": (
+                "Structured PM lesson history suggests make_editable for similar "
+                "client preference patterns; no hard evidence to override this."
+            ),
+        }
+
     # ── Fallback: unclear ─────────────────────────────────────────────────────
 
     return {

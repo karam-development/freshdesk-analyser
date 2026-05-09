@@ -3343,10 +3343,21 @@ def run_analysis_job():
                         ticket_data, code_brief=_pm_cb,
                         analysis=analysis.get("analysis", "") if isinstance(analysis, dict) else "",
                     )
+                    try:
+                        from ai.pm_learning import find_relevant_structured_pm_lessons
+                        _pm_ingest_lessons = find_relevant_structured_pm_lessons(
+                            db,
+                            ticket_subject=ticket_data.get("subject", ""),
+                            template_name=ticket_data.get("template_name", ""),
+                            workflow_name=ticket_data.get("workflow_name", ""),
+                        )
+                    except Exception:
+                        _pm_ingest_lessons = []
                     _pm_dec = build_pm_decision_for_ticket(
                         ticket_summary=_pm_summary,
                         current_behaviour=_pm_current,
                         evidence=_pm_evidence,
+                        structured_pm_lessons=_pm_ingest_lessons,
                     )
                     _pm_json = json.dumps(
                         {k: v for k, v in _pm_dec.items() if k != "_gate_results"},
@@ -4119,6 +4130,18 @@ def ticket_detail(ticket_id):
     except Exception:
         ticket_dict["existing_solution_review"] = {"has_data": False}
 
+    # ── Retrieve structured PM lessons for display on ticket detail ───────────
+    try:
+        from ai.pm_learning import find_relevant_structured_pm_lessons
+        ticket_dict["structured_pm_lessons_used"] = find_relevant_structured_pm_lessons(
+            db,
+            ticket_subject=ticket_dict.get("subject") or "",
+            template_name=ticket_dict.get("template_name") or "",
+            workflow_name=ticket_dict.get("workflow_name") or "",
+        )
+    except Exception:
+        ticket_dict["structured_pm_lessons_used"] = []
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 
@@ -4448,6 +4471,31 @@ def generate_drafts(ticket_id):
                 f"PM decision context injection failed for ticket {ticket_id}: {_pm_inject_err}"
             )
 
+        # ── Inject structured PM lessons into draft context ───────────────────
+        try:
+            from ai.pm_learning import (
+                find_relevant_structured_pm_lessons,
+                format_structured_pm_lessons_for_prompt,
+            )
+            _struct_lessons_draft = find_relevant_structured_pm_lessons(
+                db,
+                ticket_subject=ticket["subject"] or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _struct_block_draft = format_structured_pm_lessons_for_prompt(_struct_lessons_draft)
+            if _struct_block_draft:
+                enhanced_kb = _struct_block_draft + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_struct_lessons_draft)} structured PM "
+                    "lessons injected into draft context"
+                )
+        except Exception as _struct_draft_err:
+            logger.warning(
+                f"Structured PM lesson injection (draft) failed for ticket "
+                f"{ticket_id}: {_struct_draft_err}"
+            )
+
         # Use Code Agent brief instead of raw code
         # Sanitize to remove any code Haiku may have slipped into its "plain language" brief
         effective_code_ctx = strip_code_from_output(code_brief) if code_brief else ""
@@ -4652,6 +4700,31 @@ def regenerate_draft_pm(ticket_id):
         _pm_block = build_pm_prompt_block(_pm_dec, regeneration_instruction=_regen_instr)
         if _pm_block:
             enhanced_kb = _pm_block + "\n\n" + enhanced_kb
+
+        # ── Inject structured PM lessons into regeneration context ────────────
+        try:
+            from ai.pm_learning import (
+                find_relevant_structured_pm_lessons,
+                format_structured_pm_lessons_for_prompt,
+            )
+            _struct_lessons_regen = find_relevant_structured_pm_lessons(
+                db,
+                ticket_subject=ticket["subject"] or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _struct_block_regen = format_structured_pm_lessons_for_prompt(_struct_lessons_regen)
+            if _struct_block_regen:
+                enhanced_kb = _struct_block_regen + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_struct_lessons_regen)} structured PM "
+                    "lessons injected into regeneration context"
+                )
+        except Exception as _struct_regen_err:
+            logger.warning(
+                f"Structured PM lesson injection (regen) failed for ticket "
+                f"{ticket_id}: {_struct_regen_err}"
+            )
 
         logger.info(
             f"Ticket {ticket_id}: PM-constrained regeneration started "
@@ -5653,6 +5726,33 @@ def prepare_analysis(ticket_id):
             logger.warning(
                 f"PM analysis context injection failed for ticket {ticket_id}: "
                 f"{_pm_analysis_err}"
+            )
+
+        # ── Inject structured PM lessons into analysis context ────────────────
+        try:
+            from ai.pm_learning import (
+                find_relevant_structured_pm_lessons,
+                format_structured_pm_lessons_for_prompt,
+            )
+            _struct_lessons_analysis = find_relevant_structured_pm_lessons(
+                db,
+                ticket_subject=ticket["subject"] or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _struct_block_analysis = format_structured_pm_lessons_for_prompt(
+                _struct_lessons_analysis
+            )
+            if _struct_block_analysis:
+                enhanced_kb = _struct_block_analysis + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_struct_lessons_analysis)} structured PM "
+                    "lessons injected into analysis context"
+                )
+        except Exception as _struct_analysis_err:
+            logger.warning(
+                f"Structured PM lesson injection (analysis) failed for ticket "
+                f"{ticket_id}: {_struct_analysis_err}"
             )
 
         # 3. Main PRD Agent

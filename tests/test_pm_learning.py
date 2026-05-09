@@ -1,10 +1,16 @@
-"""Tests for ai/pm_learning.py — extract_structured_pm_lessons."""
+"""Tests for ai/pm_learning.py — extract_structured_pm_lessons and helpers."""
+import sqlite3
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ai.pm_learning import extract_structured_pm_lessons
+from ai.pm_learning import (
+    extract_structured_pm_lessons,
+    find_relevant_structured_pm_lessons,
+    format_structured_pm_lessons_for_prompt,
+    derive_pm_lesson_signals,
+)
 
 _REQUIRED_KEYS = {
     "lesson_type", "category", "before", "after",
@@ -391,3 +397,326 @@ def test_acceptance_scenario_three_lessons():
     assert "global_change_to_editable" in types, (
         f"Expected global_change_to_editable in {types}"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR 19 — find_relevant_structured_pm_lessons tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS pm_structured_lessons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_ticket_id INTEGER,
+    template_name TEXT DEFAULT '',
+    workflow_name TEXT DEFAULT '',
+    lesson_type TEXT NOT NULL,
+    category TEXT DEFAULT '',
+    before TEXT DEFAULT '',
+    after TEXT DEFAULT '',
+    instruction TEXT NOT NULL,
+    confidence REAL DEFAULT 0,
+    applies_to TEXT DEFAULT 'all',
+    source TEXT DEFAULT 'pm_structured_edit',
+    active INTEGER DEFAULT 1,
+    hit_count INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    last_reinforced_at TEXT DEFAULT ''
+);
+"""
+
+
+def _make_db(*rows):
+    """Create an in-memory DB and insert given lesson rows."""
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    db.executescript(_TABLE_SQL)
+    for row in rows:
+        db.execute(
+            """INSERT INTO pm_structured_lessons
+               (template_name, workflow_name, lesson_type, instruction,
+                confidence, hit_count, active)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                row.get("template_name", ""),
+                row.get("workflow_name", ""),
+                row.get("lesson_type", "unknown"),
+                row.get("instruction", "instr"),
+                row.get("confidence", 0.8),
+                row.get("hit_count", 1),
+                row.get("active", 1),
+            ),
+        )
+    db.commit()
+    return db
+
+
+# ── Basic retrieval ───────────────────────────────────────────────────────────
+
+def test_find_returns_list():
+    db = _make_db({"lesson_type": "legal_reference_removed", "instruction": "do not cite law"})
+    result = find_relevant_structured_pm_lessons(db)
+    assert isinstance(result, list)
+
+
+def test_find_returns_active_lessons_only():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "instruction": "active lesson", "active": 1},
+        {"lesson_type": "global_change_to_editable", "instruction": "inactive lesson", "active": 0},
+    )
+    result = find_relevant_structured_pm_lessons(db)
+    lessons = [r["instruction"] if hasattr(r, "__getitem__") else r for r in result]
+    assert len(result) == 1
+    assert result[0]["instruction"] == "active lesson"
+
+
+def test_find_returns_empty_when_all_inactive():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "instruction": "gone", "active": 0},
+    )
+    assert find_relevant_structured_pm_lessons(db) == []
+
+
+def test_find_returns_empty_when_table_missing():
+    db = sqlite3.connect(":memory:")
+    db.row_factory = sqlite3.Row
+    result = find_relevant_structured_pm_lessons(db)
+    assert result == []
+
+
+def test_find_returns_empty_when_db_is_none():
+    assert find_relevant_structured_pm_lessons(None) == []
+
+
+def test_find_respects_limit():
+    db = _make_db(*[
+        {"lesson_type": "legal_reference_removed", "instruction": f"instr {i}"}
+        for i in range(10)
+    ])
+    result = find_relevant_structured_pm_lessons(db, limit=3)
+    assert len(result) == 3
+
+
+# ── Ordering ──────────────────────────────────────────────────────────────────
+
+def test_find_prefers_same_template():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "template_name": "payslip", "instruction": "payslip lesson", "hit_count": 1},
+        {"lesson_type": "global_change_to_editable", "template_name": "", "instruction": "general lesson", "hit_count": 99},
+    )
+    result = find_relevant_structured_pm_lessons(db, template_name="payslip")
+    assert result[0]["instruction"] == "payslip lesson"
+
+
+def test_find_prefers_same_workflow():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "workflow_name": "annuals", "instruction": "annuals lesson", "hit_count": 1},
+        {"lesson_type": "global_change_to_editable", "workflow_name": "", "instruction": "general lesson", "hit_count": 99},
+    )
+    result = find_relevant_structured_pm_lessons(db, workflow_name="annuals")
+    assert result[0]["instruction"] == "annuals lesson"
+
+
+def test_find_orders_by_hit_count_when_no_template_match():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "instruction": "low hits", "hit_count": 1},
+        {"lesson_type": "global_change_to_editable", "instruction": "high hits", "hit_count": 10},
+    )
+    result = find_relevant_structured_pm_lessons(db, template_name="other")
+    assert result[0]["instruction"] == "high hits"
+
+
+def test_find_orders_by_confidence_when_hit_count_equal():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "instruction": "low conf", "hit_count": 5, "confidence": 0.6},
+        {"lesson_type": "global_change_to_editable", "instruction": "high conf", "hit_count": 5, "confidence": 0.9},
+    )
+    result = find_relevant_structured_pm_lessons(db)
+    assert result[0]["instruction"] == "high conf"
+
+
+def test_find_general_lessons_returned_when_no_template():
+    db = _make_db(
+        {"lesson_type": "legal_reference_removed", "template_name": "", "instruction": "general"},
+    )
+    result = find_relevant_structured_pm_lessons(db, template_name="")
+    assert len(result) == 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR 19 — format_structured_pm_lessons_for_prompt tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def test_format_empty_returns_empty_string():
+    assert format_structured_pm_lessons_for_prompt([]) == ""
+
+
+def test_format_none_instruction_skipped():
+    lesson = {"lesson_type": "unknown", "confidence": 0.8, "hit_count": 1, "instruction": ""}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert result == ""
+
+
+def test_format_includes_header():
+    lesson = {"lesson_type": "legal_reference_removed", "confidence": 0.85, "hit_count": 3,
+              "instruction": "Do not cite law."}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert result.startswith("STRUCTURED PM LESSONS:")
+
+
+def test_format_includes_lesson_type():
+    lesson = {"lesson_type": "legal_reference_removed", "confidence": 0.85, "hit_count": 3,
+              "instruction": "Do not cite law."}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert "legal_reference_removed" in result
+
+
+def test_format_includes_confidence_percent():
+    lesson = {"lesson_type": "global_change_to_editable", "confidence": 0.85, "hit_count": 5,
+              "instruction": "Prefer editable."}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert "85%" in result
+
+
+def test_format_includes_hit_count():
+    lesson = {"lesson_type": "workaround_added", "confidence": 0.75, "hit_count": 7,
+              "instruction": "Mention workaround."}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert "hits 7" in result
+
+
+def test_format_includes_instruction():
+    instr = "Do not suggest Jira or development work."
+    lesson = {"lesson_type": "dev_to_support_guidance", "confidence": 0.8, "hit_count": 2,
+              "instruction": instr}
+    result = format_structured_pm_lessons_for_prompt([lesson])
+    assert instr in result
+
+
+def test_format_caps_at_eight_lessons():
+    lessons = [
+        {"lesson_type": "unknown", "confidence": 0.8, "hit_count": 1, "instruction": f"instr {i}"}
+        for i in range(12)
+    ]
+    result = format_structured_pm_lessons_for_prompt(lessons)
+    # Count bullet lines
+    lines = [l for l in result.splitlines() if l.startswith("- ")]
+    assert len(lines) == 8
+
+
+def test_format_multiple_lessons():
+    lessons = [
+        {"lesson_type": "legal_reference_removed", "confidence": 0.85, "hit_count": 2,
+         "instruction": "Do not cite law."},
+        {"lesson_type": "global_change_to_editable", "confidence": 0.85, "hit_count": 5,
+         "instruction": "Prefer editable."},
+    ]
+    result = format_structured_pm_lessons_for_prompt(lessons)
+    assert "legal_reference_removed" in result
+    assert "global_change_to_editable" in result
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR 19 — derive_pm_lesson_signals tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _lesson(lesson_type, instruction=""):
+    return {"lesson_type": lesson_type, "instruction": instruction}
+
+
+def test_derive_empty_returns_all_false():
+    sigs = derive_pm_lesson_signals([])
+    assert sigs["avoid_legal_references"] is False
+    assert sigs["prefer_make_editable"] is False
+    assert sigs["prefer_support_guidance"] is False
+    assert sigs["prefer_bug_framing"] is False
+    assert sigs["prefer_short_answer"] is False
+    assert sigs["prefer_existing_solution"] is False
+    assert sigs["lesson_count"] == 0
+    assert sigs["lesson_types"] == []
+
+
+def test_derive_legal_reference_removed_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("legal_reference_removed")])
+    assert sigs["avoid_legal_references"] is True
+
+
+def test_derive_global_change_to_editable_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("global_change_to_editable")])
+    assert sigs["prefer_make_editable"] is True
+
+
+def test_derive_dev_to_support_guidance_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("dev_to_support_guidance")])
+    assert sigs["prefer_support_guidance"] is True
+
+
+def test_derive_workaround_added_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("workaround_added")])
+    assert sigs["prefer_support_guidance"] is True
+
+
+def test_derive_bug_feature_framing_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("bug_feature_framing")])
+    assert sigs["prefer_bug_framing"] is True
+
+
+def test_derive_answer_depth_shortened_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("answer_depth_shortened")])
+    assert sigs["prefer_short_answer"] is True
+
+
+def test_derive_existing_solution_added_maps_correctly():
+    sigs = derive_pm_lesson_signals([_lesson("existing_solution_added")])
+    assert sigs["prefer_existing_solution"] is True
+
+
+def test_derive_classification_correction_make_editable_inferred():
+    sigs = derive_pm_lesson_signals([
+        _lesson("classification_correction", instruction="PMDecision recommended_action=make_editable")
+    ])
+    assert sigs["prefer_make_editable"] is True
+
+
+def test_derive_classification_correction_support_inferred():
+    sigs = derive_pm_lesson_signals([
+        _lesson("classification_correction", instruction="do not suggest development; use workaround")
+    ])
+    assert sigs["prefer_support_guidance"] is True
+
+
+def test_derive_classification_correction_bug_inferred():
+    sigs = derive_pm_lesson_signals([
+        _lesson("classification_correction", instruction="PMDecision classification=bug; frame as bug fix")
+    ])
+    assert sigs["prefer_bug_framing"] is True
+
+
+def test_derive_lesson_count_matches_input():
+    lessons = [_lesson("legal_reference_removed"), _lesson("workaround_added")]
+    sigs = derive_pm_lesson_signals(lessons)
+    assert sigs["lesson_count"] == 2
+
+
+def test_derive_lesson_types_list_sorted():
+    lessons = [_lesson("workaround_added"), _lesson("legal_reference_removed")]
+    sigs = derive_pm_lesson_signals(lessons)
+    assert sigs["lesson_types"] == sorted(["workaround_added", "legal_reference_removed"])
+
+
+def test_derive_multiple_signals_all_true():
+    lessons = [
+        _lesson("legal_reference_removed"),
+        _lesson("global_change_to_editable"),
+        _lesson("answer_depth_shortened"),
+    ]
+    sigs = derive_pm_lesson_signals(lessons)
+    assert sigs["avoid_legal_references"] is True
+    assert sigs["prefer_make_editable"] is True
+    assert sigs["prefer_short_answer"] is True
+
+
+def test_derive_does_not_mutate_input():
+    lessons = [_lesson("legal_reference_removed")]
+    original = [dict(l) for l in lessons]
+    derive_pm_lesson_signals(lessons)
+    assert lessons[0] == original[0]

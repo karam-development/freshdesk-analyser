@@ -46,6 +46,10 @@ def build_pm_decision_from_gates(
     gr = gate_results.get("global_change_risk") or {}
     dn = gate_results.get("development_need") or {}
 
+    # ── Unpack structured PM lesson signals (conservative hints only) ─────────
+    _struct       = gate_results.get("structured_pm_lessons") or {}
+    _lesson_sigs  = _struct.get("signals") or {}
+
     # ── Copy gate fields into output ──────────────────────────────────────────
 
     complexity      = cx.get("complexity",          out["complexity"])
@@ -75,6 +79,7 @@ def build_pm_decision_from_gates(
         needs_prd    = False
 
     # ── Classification ────────────────────────────────────────────────────────
+    # (computed before lesson-signal adjustments so signals can reference it)
     # Derive from legal_preference gate where possible.
 
     if development_type == "bug_fix":
@@ -92,6 +97,17 @@ def build_pm_decision_from_gates(
         classification = "how_to"
     else:
         classification = "needs_analysis"
+
+    # ── Structured PM lesson adjustments (applied after classification) ──────
+    # prefer_short_answer: nudge answer_depth to "short" for safe classifications.
+    # Only applies when complexity is not "complex" to avoid truncating PRD output.
+    _SHORT_ANSWER_SAFE = ("client_preference", "how_to", "expected_behaviour", "product_standard")
+    if (
+        _lesson_sigs.get("prefer_short_answer")
+        and complexity != "complex"
+        and classification in _SHORT_ANSWER_SAFE
+    ):
+        answer_depth = "short"
 
     # ── Decision (priority rules) ─────────────────────────────────────────────
 
@@ -136,6 +152,21 @@ def build_pm_decision_from_gates(
         recommended_action = "needs_analysis"
         reasons.append(
             "Legal status or complexity is unclear; expert analysis required."
+        )
+
+    # Rule 4.5: lesson signal nudge — prefer_make_editable when status is unclear
+    # Only fires when no earlier rule matched AND legal status is not mandatory.
+    # Lessons are hints; this only promotes make_editable over pure needs_analysis.
+    elif (
+        _lesson_sigs.get("prefer_make_editable")
+        and legal_status not in ("mandatory", "accounting_required")
+        and development_type != "bug_fix"
+    ):
+        decision           = "make_editable"
+        recommended_action = "make_editable"
+        reasons.append(
+            "Structured PM lesson history suggests make_editable for similar "
+            "client preference patterns."
         )
 
     # Rule 5: default
