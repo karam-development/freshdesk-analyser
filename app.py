@@ -3353,6 +3353,20 @@ def run_analysis_job():
                         )
                     except Exception:
                         _pm_ingest_lessons = []
+                    # ── KB evidence signals (ingest) ──────────────────────────
+                    try:
+                        from ai.kb_retrieval import retrieve_relevant_kb_entries, derive_kb_evidence_signals
+                        _kb_entries_ingest = retrieve_relevant_kb_entries(
+                            db,
+                            subject=ticket_data.get("subject", ""),
+                            summary=_pm_summary,
+                            template_name=ticket_data.get("template_name", ""),
+                            workflow_name=ticket_data.get("workflow_name", ""),
+                        )
+                        _kb_sigs_ingest = derive_kb_evidence_signals(_kb_entries_ingest)
+                        _pm_evidence["kb_evidence_signals"] = _kb_sigs_ingest
+                    except Exception:
+                        pass
                     _pm_dec = build_pm_decision_for_ticket(
                         ticket_summary=_pm_summary,
                         current_behaviour=_pm_current,
@@ -4496,6 +4510,29 @@ def generate_drafts(ticket_id):
                 f"{ticket_id}: {_struct_draft_err}"
             )
 
+        # ── Inject KB evidence summary into draft context ─────────────────────
+        try:
+            from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            _kb_entries_draft = retrieve_relevant_kb_entries(
+                db,
+                subject=ticket["subject"] or "",
+                summary=ticket.get("description", "") or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _kb_ev_block_draft = summarize_kb_evidence(_kb_entries_draft)
+            if _kb_ev_block_draft:
+                enhanced_kb = _kb_ev_block_draft + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_kb_entries_draft)} KB evidence entries "
+                    "injected into draft context"
+                )
+        except Exception as _kb_draft_err:
+            logger.warning(
+                f"KB evidence injection (draft) failed for ticket "
+                f"{ticket_id}: {_kb_draft_err}"
+            )
+
         # Use Code Agent brief instead of raw code
         # Sanitize to remove any code Haiku may have slipped into its "plain language" brief
         effective_code_ctx = strip_code_from_output(code_brief) if code_brief else ""
@@ -4724,6 +4761,29 @@ def regenerate_draft_pm(ticket_id):
             logger.warning(
                 f"Structured PM lesson injection (regen) failed for ticket "
                 f"{ticket_id}: {_struct_regen_err}"
+            )
+
+        # ── Inject KB evidence summary into regeneration context ──────────────
+        try:
+            from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            _kb_entries_regen = retrieve_relevant_kb_entries(
+                db,
+                subject=ticket["subject"] or "",
+                summary=ticket.get("description", "") or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _kb_ev_block_regen = summarize_kb_evidence(_kb_entries_regen)
+            if _kb_ev_block_regen:
+                enhanced_kb = _kb_ev_block_regen + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_kb_entries_regen)} KB evidence entries "
+                    "injected into regeneration context"
+                )
+        except Exception as _kb_regen_err:
+            logger.warning(
+                f"KB evidence injection (regen) failed for ticket "
+                f"{ticket_id}: {_kb_regen_err}"
             )
 
         logger.info(
@@ -5753,6 +5813,29 @@ def prepare_analysis(ticket_id):
             logger.warning(
                 f"Structured PM lesson injection (analysis) failed for ticket "
                 f"{ticket_id}: {_struct_analysis_err}"
+            )
+
+        # ── Inject KB evidence summary into analysis context ──────────────────
+        try:
+            from ai.kb_retrieval import retrieve_relevant_kb_entries, summarize_kb_evidence
+            _kb_entries_analysis = retrieve_relevant_kb_entries(
+                db,
+                subject=ticket["subject"] or "",
+                summary=ticket.get("description", "") or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _kb_ev_block_analysis = summarize_kb_evidence(_kb_entries_analysis)
+            if _kb_ev_block_analysis:
+                enhanced_kb = _kb_ev_block_analysis + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: {len(_kb_entries_analysis)} KB evidence entries "
+                    "injected into analysis context"
+                )
+        except Exception as _kb_analysis_err:
+            logger.warning(
+                f"KB evidence injection (analysis) failed for ticket "
+                f"{ticket_id}: {_kb_analysis_err}"
             )
 
         # 3. Main PRD Agent

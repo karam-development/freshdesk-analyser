@@ -137,6 +137,14 @@ def detect_existing_solution(
     )
     signals["evidence_wrong_output"] = bool(ev.get("mentions_wrong_output", False))
 
+    # ── KB retrieval signals (conservative boost — additive only) ─────────────
+    _kb_sigs = ev.get("kb_evidence_signals") or {}
+    signals["kb_workaround_evidence"] = bool(_kb_sigs.get("has_workaround_evidence", False))
+    signals["kb_existing_setting_evidence"] = bool(
+        _kb_sigs.get("has_existing_setting_evidence", False)
+    )
+    signals["kb_product_evidence"] = bool(_kb_sigs.get("has_product_evidence", False))
+
     signals["context_existing_setting"] = _contains_any(
         all_context, _EXISTING_SETTING_TERMS
     )
@@ -190,6 +198,35 @@ def detect_existing_solution(
                 "request; support guidance is sufficient — no development needed."
             ),
             "sources": sources,
+            "signals": signals,
+        }
+
+    # Priority 1.5: KB retrieval independently confirms a workaround (no text in briefs needed)
+    if signals["kb_workaround_evidence"] and not signals["evidence_wrong_output"]:
+        return {
+            "has_existing_solution": True,
+            "solution_type": "existing_workaround",
+            "recommended_action": "explain_workaround",
+            "confidence": 0.8,
+            "reason": (
+                "KB retrieval found a relevant workaround entry for this request; "
+                "support guidance should be sufficient."
+            ),
+            "sources": sources + ["kb_evidence_signals"],
+            "signals": signals,
+        }
+
+    # Priority 1.6: KB retrieval confirms an existing setting
+    if signals["kb_existing_setting_evidence"] and not signals["evidence_wrong_output"]:
+        return {
+            "has_existing_solution": True,
+            "solution_type": "existing_setting",
+            "recommended_action": "explain_existing_setting",
+            "confidence": 0.8,
+            "reason": (
+                "KB retrieval found a relevant existing-setting entry for this request."
+            ),
+            "sources": sources + ["kb_evidence_signals"],
             "signals": signals,
         }
 
