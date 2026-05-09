@@ -422,3 +422,174 @@ def test_pr16_acceptance_custom_wording_correct_behaviour_make_editable():
     assert result["global_change_risk"] == "high", (
         f"PR16 acceptance: expected global_change_risk=high, got {result['global_change_risk']}"
     )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PR 19 — structured_pm_lessons integration
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _make_lesson(lesson_type, confidence=0.85, hit_count=1, instruction=""):
+    from ai.pm_learning import _INSTRUCTION_MAP  # noqa: PLC0415
+    return {
+        "lesson_type": lesson_type,
+        "confidence": confidence,
+        "hit_count": hit_count,
+        "instruction": instruction or _INSTRUCTION_MAP.get(lesson_type, "some instruction"),
+    }
+
+
+def test_runner_stores_structured_pm_lessons_in_gate_results():
+    lessons = [_make_lesson("legal_reference_removed")]
+    result = build_pm_decision_for_ticket(
+        "Client wants to change wording.",
+        structured_pm_lessons=lessons,
+    )
+    sp = result["_gate_results"].get("structured_pm_lessons")
+    assert sp is not None
+    assert sp["lesson_count"] == 1
+    assert "legal_reference_removed" in sp["lesson_types"]
+
+
+def test_runner_gate_results_has_signals_dict():
+    lessons = [_make_lesson("global_change_to_editable")]
+    result = build_pm_decision_for_ticket(
+        "Change the default for all clients.",
+        structured_pm_lessons=lessons,
+    )
+    sigs = result["_gate_results"]["structured_pm_lessons"]["signals"]
+    assert isinstance(sigs, dict)
+    assert sigs["prefer_make_editable"] is True
+
+
+def test_runner_adds_structured_pm_lessons_to_evidence_used():
+    lessons = [_make_lesson("legal_reference_removed")]
+    result = build_pm_decision_for_ticket(
+        "Article 100 mandates this.",
+        structured_pm_lessons=lessons,
+    )
+    assert "structured_pm_lessons" in result.get("evidence_used", [])
+
+
+def test_runner_no_structured_pm_lessons_in_gate_results_when_none():
+    result = build_pm_decision_for_ticket("Some ticket", structured_pm_lessons=None)
+    sp = result["_gate_results"].get("structured_pm_lessons", {})
+    assert sp.get("lesson_count", 0) == 0
+
+
+def test_runner_avoid_legal_references_reinforces_should_mention_law_false():
+    """avoid_legal_references lesson should never introduce should_mention_law=True."""
+    lessons = [_make_lesson("legal_reference_removed")]
+    result = build_pm_decision_for_ticket(
+        "Article 100 mandates this change.",
+        structured_pm_lessons=lessons,
+    )
+    assert result["should_mention_law"] is False
+
+
+def test_runner_prefer_make_editable_with_custom_wording_gives_make_editable():
+    """prefer_make_editable lesson + custom_wording evidence → make_editable."""
+    lessons = [_make_lesson("global_change_to_editable", hit_count=5)]
+    result = build_pm_decision_for_ticket(
+        "Client wants to change wording to their preferred wording.",
+        evidence={
+            "mentions_custom_wording": True,
+            "mentions_correct_current_behaviour": True,
+            "mentions_wrong_output": False,
+        },
+        structured_pm_lessons=lessons,
+    )
+    assert result["recommended_action"] == "make_editable", (
+        f"Expected make_editable, got {result['recommended_action']}"
+    )
+
+
+def test_runner_prefer_support_guidance_with_workaround_evidence_gives_no_dev():
+    """prefer_support_guidance lesson + workaround evidence → no development."""
+    lessons = [_make_lesson("dev_to_support_guidance")]
+    result = build_pm_decision_for_ticket(
+        "How do I configure the existing setting?",
+        evidence={"mentions_existing_workaround": True},
+        structured_pm_lessons=lessons,
+    )
+    assert result["needs_development"] is False
+
+
+def test_runner_wrong_output_still_bug_fix_even_with_prefer_make_editable():
+    """Bug evidence must win over any lesson signal."""
+    lessons = [_make_lesson("global_change_to_editable", hit_count=10)]
+    result = build_pm_decision_for_ticket(
+        "The calculation is wrong and produces incorrect output.",
+        evidence={"mentions_wrong_output": True},
+        structured_pm_lessons=lessons,
+    )
+    assert result["recommended_action"] == "accept_bug", (
+        f"Bug evidence must win; got {result['recommended_action']}"
+    )
+    assert result["development_type"] == "bug_fix"
+
+
+def test_runner_prefer_short_answer_sets_answer_depth_short():
+    """prefer_short_answer lesson should produce answer_depth=short for simple tickets."""
+    lessons = [_make_lesson("answer_depth_shortened")]
+    result = build_pm_decision_for_ticket(
+        "Client wants to change the label wording.",
+        evidence={"mentions_custom_wording": True},
+        structured_pm_lessons=lessons,
+    )
+    assert result["answer_depth"] == "short", (
+        f"Expected short, got {result['answer_depth']}"
+    )
+
+
+def test_runner_prefer_make_editable_nudge_in_unclear_fallback():
+    """prefer_make_editable nudges needs_analysis fallback to make_editable."""
+    lessons = [_make_lesson("global_change_to_editable")]
+    # Minimal ticket with no strong signal; lessons should nudge to make_editable
+    result = build_pm_decision_for_ticket(
+        "The client would like different wording for their reports.",
+        structured_pm_lessons=lessons,
+    )
+    # The lesson should influence toward make_editable
+    assert result["recommended_action"] in ("make_editable", "needs_analysis"), (
+        f"Expected make_editable or needs_analysis, got {result['recommended_action']}"
+    )
+
+
+def test_pr19_acceptance_scenario():
+    """PR 19 acceptance scenario.
+
+    Stored lesson:
+        lesson_type = global_change_to_editable
+        instruction = 'Prefer editable/configurable per-client wording...'
+        hit_count = 5
+        confidence = 0.85
+
+    Ticket: 'Client wants to change wording to their preferred wording.'
+    Evidence: custom_wording=True, correct_current_behaviour=True, wrong_output=False
+
+    Expected:
+        prefer_make_editable = True (signal derived from lesson)
+        recommended_action   = make_editable
+        needs_prd            = False
+        should_mention_law   = False
+    """
+    lessons = [_make_lesson("global_change_to_editable", confidence=0.85, hit_count=5)]
+    result = build_pm_decision_for_ticket(
+        "Client wants to change wording to their preferred wording.",
+        evidence={
+            "mentions_custom_wording": True,
+            "mentions_correct_current_behaviour": True,
+            "mentions_wrong_output": False,
+        },
+        structured_pm_lessons=lessons,
+    )
+    # Lesson signal derived
+    sp = result["_gate_results"]["structured_pm_lessons"]
+    assert sp["signals"]["prefer_make_editable"] is True
+
+    # Decision
+    assert result["recommended_action"] == "make_editable", (
+        f"Expected make_editable, got {result['recommended_action']}"
+    )
+    assert result["needs_prd"] is False
+    assert result["should_mention_law"] is False

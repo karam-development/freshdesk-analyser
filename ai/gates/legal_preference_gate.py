@@ -129,6 +129,12 @@ def evaluate_legal_preference(
 
     # ── Priority 5: Legal terms mentioned but no explicit requirement ──────────
     # Presence of legal vocabulary alone does NOT permit citing law.
+    # If structured PM lesson history also says avoid_legal_references, raise
+    # confidence slightly (should_mention_law remains False).
+
+    _avoid_legal = evidence.get("structured_lesson_signals", {}).get(
+        "avoid_legal_references", False
+    )
 
     if evidence.get("mentions_legal_terms") is True:
         return {
@@ -139,7 +145,7 @@ def evaluate_legal_preference(
                 "requirement evidence was provided; treating as unclear — "
                 "do not cite law without confirmed obligation."
             ),
-            "confidence": 0.4,
+            "confidence": 0.55 if _avoid_legal else 0.4,
         }
 
     # ── Priority 6: No clear signal ───────────────────────────────────────────
@@ -150,5 +156,5 @@ def evaluate_legal_preference(
         "reason": (
             "No clear legal, accounting, or preference signal found in the ticket."
         ),
-        "confidence": 0.4,
+        "confidence": 0.55 if _avoid_legal else 0.4,
     }
