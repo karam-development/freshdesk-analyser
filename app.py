@@ -4156,6 +4156,21 @@ def ticket_detail(ticket_id):
     except Exception:
         ticket_dict["structured_pm_lessons_used"] = []
 
+    # ── Retrieve and display KB evidence on ticket detail (read-only) ─────────
+    try:
+        from ai.kb_retrieval import retrieve_relevant_kb_entries
+        from ai.kb_evidence_display import build_kb_evidence_review
+        _kb_display_entries = retrieve_relevant_kb_entries(
+            db,
+            subject=ticket_dict.get("subject") or "",
+            summary=ticket_dict.get("description") or ticket_dict.get("compiled_thread") or "",
+            template_name=ticket_dict.get("template_name") or "",
+            workflow_name=ticket_dict.get("workflow_name") or "",
+        )
+        ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
+    except Exception:
+        ticket_dict["kb_evidence_review"] = {"has_data": False, "entries": [], "summary": {"count": 0}}
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 

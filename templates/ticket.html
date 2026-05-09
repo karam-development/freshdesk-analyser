@@ -711,6 +711,72 @@
         {% endif %}
     </div>
 
+    <!-- RELEVANT KB EVIDENCE CARD -->
+    <div class="card">
+        <h3 class="card-heading">Relevant KB Evidence <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        {% if ticket.kb_evidence_review and ticket.kb_evidence_review.has_data %}
+        {% set kbe = ticket.kb_evidence_review %}
+        {% set kbs = kbe.summary %}
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;align-items:center;">
+            <span style="font-size:0.78em;color:var(--text-muted);font-weight:600;">{{ kbs.count }} entr{{ 'y' if kbs.count == 1 else 'ies' }} matched</span>
+            {% if kbs.has_legal_evidence %}
+            <span class="badge badge-medium" style="font-size:0.72em;">Legal evidence</span>
+            {% endif %}
+            {% if kbs.has_workaround_evidence %}
+            <span class="badge badge-low" style="font-size:0.72em;">Workaround</span>
+            {% endif %}
+            {% if kbs.has_existing_setting_evidence %}
+            <span class="badge badge-low" style="font-size:0.72em;">Existing setting</span>
+            {% endif %}
+            {% if kbs.has_product_evidence %}
+            <span class="badge" style="font-size:0.72em;background:var(--info-color,#3182ce);color:#fff;">Product evidence</span>
+            {% endif %}
+            {% if kbs.has_terminology_evidence %}
+            <span class="badge" style="font-size:0.72em;">Terminology</span>
+            {% endif %}
+        </div>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Type</th>
+                        <th>Title</th>
+                        <th>Score</th>
+                        <th>Snippet</th>
+                        <th>Matched terms</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for kbentry in kbe.entries %}
+                    <tr>
+                        <td>
+                            <span class="badge" style="font-size:0.72em;white-space:nowrap;background:
+                                {% if kbentry.severity == 'warning' %}#fee2e2;color:#991b1b
+                                {% elif kbentry.severity == 'success' %}#d1fae5;color:#065f46
+                                {% elif kbentry.severity == 'info' %}#dbeafe;color:#1e40af
+                                {% else %}#f3f4f6;color:#374151
+                                {% endif %};">{{ kbentry.badge_label }}</span>
+                        </td>
+                        <td style="font-size:0.82em;font-weight:500;max-width:180px;">{{ kbentry.title }}</td>
+                        <td style="font-size:0.82em;font-weight:600;color:{% if kbentry.score >= 8 %}var(--success,#38a169){% elif kbentry.score >= 4 %}var(--warning-color,#d97706){% else %}var(--text-muted){% endif %};">{{ kbentry.score }}</td>
+                        <td style="font-size:0.78em;color:var(--text-muted);max-width:280px;">{{ kbentry.snippet }}</td>
+                        <td style="max-width:160px;">
+                            <div style="display:flex;flex-wrap:wrap;gap:3px;">
+                                {% for term in kbentry.matched_terms %}
+                                <span style="font-size:0.68em;background:var(--tag-bg,#e2e8f0);color:var(--tag-color,#4a5568);padding:1px 5px;border-radius:8px;">{{ term }}</span>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No relevant KB evidence found for this ticket.</p>
+        {% endif %}
+    </div>
+
     <!-- STRUCTURED PM LESSONS USED CARD -->
     {% if ticket.structured_pm_lessons_used %}
     <div class="card">
