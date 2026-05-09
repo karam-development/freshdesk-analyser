@@ -768,6 +768,20 @@
                             </div>
                         </td>
                     </tr>
+                    <tr>
+                        <td colspan="5" style="padding:2px 8px 6px 8px;border-top:none;">
+                            <span style="font-size:0.7em;color:var(--text-muted);font-weight:600;margin-right:4px;">Why matched:</span>
+                            {% if kbentry.score_reasons %}
+                            <span style="display:inline-flex;flex-wrap:wrap;gap:3px;align-items:center;">
+                                {% for reason in kbentry.score_reasons %}
+                                <span style="font-size:0.67em;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;padding:1px 5px;border-radius:8px;font-family:monospace;">{{ reason }}</span>
+                                {% endfor %}
+                            </span>
+                            {% else %}
+                            <span style="font-size:0.7em;color:var(--text-muted);font-style:italic;">No score reasons available</span>
+                            {% endif %}
+                        </td>
+                    </tr>
                     {% endfor %}
                 </tbody>
             </table>

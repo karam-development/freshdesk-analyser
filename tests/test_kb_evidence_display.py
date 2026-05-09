@@ -375,3 +375,157 @@ def test_acceptance_scenario():
     assert entry["matched_terms"] == ["title:staff", "title:wording", "content:editable"]
     assert entry["title"] == "Existing workaround for staff cost wording"
     assert entry["score"] == 14
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PR 23 — score_reasons preservation tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _entry_with_reasons(**kwargs):
+    """Base entry factory including score_reasons."""
+    base = {
+        "title": "KB Entry",
+        "category": "General",
+        "content": "Some content.",
+        "score": 5,
+        "matched_terms": ["title:invoice"],
+        "evidence_type": "general_evidence",
+        "score_reasons": ["title:invoice +4", "template_phrase:match +5"],
+    }
+    base.update(kwargs)
+    return base
+
+
+# ── score_reasons preserved ───────────────────────────────────────────────────
+
+
+def test_score_reasons_preserved_in_display_entry():
+    reasons = ["title:staff +4", "title:wording +4", "template_phrase:title +5"]
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=reasons)])
+    assert result["entries"][0]["score_reasons"] == reasons
+
+
+def test_score_reasons_present_as_key():
+    result = build_kb_evidence_review([_entry_with_reasons()])
+    assert "score_reasons" in result["entries"][0]
+
+
+def test_score_reasons_values_are_strings():
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=[1, 2.5, "title:x +4"])])
+    for r in result["entries"][0]["score_reasons"]:
+        assert isinstance(r, str)
+
+
+# ── score_reasons defensive handling ─────────────────────────────────────────
+
+
+def test_score_reasons_missing_key_returns_empty_list():
+    entry = {
+        "title": "T", "category": "G", "content": "c",
+        "score": 4, "matched_terms": [], "evidence_type": "general_evidence",
+        # no score_reasons key
+    }
+    result = build_kb_evidence_review([entry])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+def test_score_reasons_none_returns_empty_list():
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=None)])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+def test_score_reasons_non_list_returns_empty_list():
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons="not-a-list")])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+def test_score_reasons_empty_list_preserved():
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=[])])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+def test_score_reasons_dict_returns_empty_list():
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons={"key": "val"})])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+# ── score_reasons capped at 8 ─────────────────────────────────────────────────
+
+
+def test_score_reasons_capped_at_8():
+    many_reasons = [f"reason:{i} +{i}" for i in range(20)]
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=many_reasons)])
+    assert len(result["entries"][0]["score_reasons"]) == 8
+
+
+def test_score_reasons_fewer_than_8_all_preserved():
+    reasons = ["title:x +4", "template_phrase:y +5"]
+    result = build_kb_evidence_review([_entry_with_reasons(score_reasons=reasons)])
+    assert len(result["entries"][0]["score_reasons"]) == 2
+
+
+# ── Existing behaviour unchanged ──────────────────────────────────────────────
+
+
+def test_existing_fields_still_present_with_score_reasons():
+    """All pre-PR-23 display entry keys must still be present."""
+    result = build_kb_evidence_review([_entry_with_reasons()])
+    entry = result["entries"][0]
+    for key in ("title", "category", "evidence_type", "score",
+                "matched_terms", "snippet", "badge_label", "severity"):
+        assert key in entry, f"Missing key: {key}"
+
+
+def test_summary_shape_unchanged():
+    result = build_kb_evidence_review([_entry_with_reasons()])
+    for key in ("count", "has_legal_evidence", "has_workaround_evidence",
+                "has_existing_setting_evidence", "has_product_evidence",
+                "has_terminology_evidence", "evidence_types"):
+        assert key in result["summary"]
+
+
+def test_has_data_true_with_score_reasons():
+    result = build_kb_evidence_review([_entry_with_reasons()])
+    assert result["has_data"] is True
+
+
+# ── PR 23 acceptance scenario ─────────────────────────────────────────────────
+
+
+def test_pr23_acceptance_scenario():
+    """Full acceptance scenario from PR 23 spec."""
+    entry = {
+        "title": "Existing workaround for staff cost wording",
+        "category": "workaround",
+        "content": "Use the editable text field instead of changing the global default.",
+        "score": 14,
+        "matched_terms": ["title:staff", "title:wording", "content:editable"],
+        "score_reasons": [
+            "title:staff +4",
+            "title:wording +4",
+            "template_phrase:title +5",
+            "evidence_type:workaround +3",
+        ],
+        "evidence_type": "workaround_evidence",
+    }
+
+    result = build_kb_evidence_review([entry])
+
+    assert result["has_data"] is True
+    display_entry = result["entries"][0]
+
+    # score_reasons preserved with correct length
+    assert display_entry["score_reasons"] == [
+        "title:staff +4",
+        "title:wording +4",
+        "template_phrase:title +5",
+        "evidence_type:workaround +3",
+    ]
+    assert len(display_entry["score_reasons"]) == 4
+
+    # Other fields unchanged
+    assert display_entry["badge_label"] == "Workaround"
+    assert display_entry["severity"] == "success"
+    assert "editable text field" in display_entry["snippet"]
+    assert display_entry["score"] == 14

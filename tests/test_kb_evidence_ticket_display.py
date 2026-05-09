@@ -207,3 +207,82 @@ def test_build_kb_evidence_review_summary_has_count():
     from ai.kb_evidence_display import build_kb_evidence_review
     result = build_kb_evidence_review([])
     assert "count" in result["summary"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PR 23 — score_reasons template and wiring tests
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def test_template_contains_why_matched_label():
+    assert "Why matched" in TEMPLATE_SRC
+
+
+def test_template_renders_score_reasons():
+    assert "kbentry.score_reasons" in TEMPLATE_SRC
+
+
+def test_template_contains_no_score_reasons_fallback():
+    assert "No score reasons available" in TEMPLATE_SRC
+
+
+def test_template_score_reasons_uses_for_loop():
+    assert "for reason in kbentry.score_reasons" in TEMPLATE_SRC
+
+
+def test_template_renders_reason_variable():
+    assert "{{ reason }}" in TEMPLATE_SRC
+
+
+def test_template_kb_card_still_has_no_form_after_pr23():
+    card_start = TEMPLATE_SRC.find("RELEVANT KB EVIDENCE CARD")
+    card_end = TEMPLATE_SRC.find("STRUCTURED PM LESSONS USED CARD")
+    kb_section = TEMPLATE_SRC[card_start:card_end]
+    assert "<form" not in kb_section.lower()
+    assert 'type="submit"' not in kb_section.lower()
+
+
+def test_template_kb_card_still_has_no_input_after_pr23():
+    card_start = TEMPLATE_SRC.find("RELEVANT KB EVIDENCE CARD")
+    card_end = TEMPLATE_SRC.find("STRUCTURED PM LESSONS USED CARD")
+    kb_section = TEMPLATE_SRC[card_start:card_end]
+    assert "<input" not in kb_section.lower()
+    assert "<textarea" not in kb_section.lower()
+    assert "<select" not in kb_section.lower()
+
+
+def test_template_kb_card_still_has_no_save_after_pr23():
+    card_start = TEMPLATE_SRC.find("RELEVANT KB EVIDENCE CARD")
+    card_end = TEMPLATE_SRC.find("STRUCTURED PM LESSONS USED CARD")
+    kb_section = TEMPLATE_SRC[card_start:card_end]
+    assert "save" not in kb_section.lower()
+    assert "edit" not in kb_section.lower()
+
+
+def test_score_reasons_key_in_display_helper_return():
+    from ai.kb_evidence_display import build_kb_evidence_review
+    entry = {
+        "title": "T", "category": "G", "content": "c",
+        "score": 5, "matched_terms": [], "evidence_type": "general_evidence",
+        "score_reasons": ["title:x +4"],
+    }
+    result = build_kb_evidence_review([entry])
+    assert "score_reasons" in result["entries"][0]
+
+
+def test_score_reasons_missing_does_not_crash_helper():
+    from ai.kb_evidence_display import build_kb_evidence_review
+    entry = {
+        "title": "T", "category": "G", "content": "c",
+        "score": 5, "matched_terms": [], "evidence_type": "general_evidence",
+    }
+    result = build_kb_evidence_review([entry])
+    assert result["entries"][0]["score_reasons"] == []
+
+
+def test_app_route_unchanged_no_kb_evidence_review_changes_needed():
+    """ticket_detail route should not need changes for PR 23 — score_reasons
+    flow from kb_retrieval through kb_evidence_display automatically."""
+    # Confirm build_kb_evidence_review is still called in app.py
+    assert "build_kb_evidence_review" in APP_SRC
+    assert "retrieve_relevant_kb_entries" in APP_SRC
