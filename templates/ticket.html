@@ -711,6 +711,52 @@
         {% endif %}
     </div>
 
+    <!-- KB EVIDENCE QUALITY CARD -->
+    <div class="card">
+        <h3 class="card-heading">KB Evidence Quality <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
+        {% if ticket.kb_evidence_quality_review and ticket.kb_evidence_quality_review.has_data %}
+        {% set kbq = ticket.kb_evidence_quality_review %}
+        {% set kbqs = kbq.summary %}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px;">
+            {% if kbq.overall_quality == "strong" %}
+            <span style="font-size:0.82em;font-weight:700;background:#d1fae5;color:#065f46;border:1px solid #a7f3d0;padding:2px 10px;border-radius:10px;">Strong</span>
+            {% elif kbq.overall_quality == "moderate" %}
+            <span style="font-size:0.82em;font-weight:700;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;padding:2px 10px;border-radius:10px;">Moderate</span>
+            {% elif kbq.overall_quality == "weak" %}
+            <span style="font-size:0.82em;font-weight:700;background:#fef3c7;color:#92400e;border:1px solid #fde68a;padding:2px 10px;border-radius:10px;">Weak</span>
+            {% elif kbq.overall_quality == "mixed" %}
+            <span style="font-size:0.82em;font-weight:700;background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;padding:2px 10px;border-radius:10px;">Mixed</span>
+            {% else %}
+            <span style="font-size:0.82em;font-weight:700;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:2px 10px;border-radius:10px;">{{ kbq.overall_quality }}</span>
+            {% endif %}
+            <span style="font-size:0.75em;color:var(--text-muted);">quality score: <strong>{{ kbq.quality_score }}</strong></span>
+            <span style="font-size:0.75em;color:var(--text-muted);">{{ kbqs.entry_count }} entr{{ 'y' if kbqs.entry_count == 1 else 'ies' }}</span>
+            <span style="font-size:0.75em;color:var(--text-muted);">max: <strong>{{ kbqs.max_score }}</strong></span>
+            <span style="font-size:0.75em;color:var(--text-muted);">avg: <strong>{{ kbqs.avg_score }}</strong></span>
+            {% for et in kbqs.evidence_types %}
+            <span style="font-size:0.7em;background:#f3f4f6;color:#374151;border:1px solid #d1d5db;padding:1px 5px;border-radius:6px;">{{ et }}</span>
+            {% endfor %}
+        </div>
+        {% if kbq.signals %}
+        <div style="display:flex;flex-direction:column;gap:5px;">
+            {% for sig in kbq.signals %}
+            <div style="display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:6px;background:
+                {% if sig.severity == 'success' %}#f0fdf4{% elif sig.severity == 'warning' %}#fffbeb{% elif sig.severity == 'danger' %}#fef2f2{% elif sig.severity == 'info' %}#eff6ff{% else %}#f9fafb{% endif %};">
+                <span style="font-size:0.72em;font-weight:700;white-space:nowrap;padding:1px 6px;border-radius:8px;background:
+                    {% if sig.severity == 'success' %}#d1fae5;color:#065f46{% elif sig.severity == 'warning' %}#fde68a;color:#92400e{% elif sig.severity == 'danger' %}#fecaca;color:#991b1b{% elif sig.severity == 'info' %}#bfdbfe;color:#1e40af{% else %}#e5e7eb;color:#374151{% endif %};">{{ sig.severity }}</span>
+                <div>
+                    <span style="font-size:0.78em;font-weight:600;color:var(--text-primary,#1a202c);">{{ sig.title }}</span>
+                    <span style="font-size:0.75em;color:var(--text-muted);margin-left:6px;">{{ sig.message }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No KB evidence quality signals available.</p>
+        {% endif %}
+    </div>
+
     <!-- RELEVANT KB EVIDENCE CARD -->
     <div class="card">
         <h3 class="card-heading">Relevant KB Evidence <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">deterministic · read-only</small></h3>
