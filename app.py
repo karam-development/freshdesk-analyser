@@ -4185,6 +4185,7 @@ def ticket_detail(ticket_id):
         from ai.kb_evidence_snapshot import load_kb_evidence_snapshot
         from ai.kb_snapshot_display import build_kb_snapshot_flow_review
         from ai.kb_snapshot_diff import build_kb_snapshot_diff_review
+        from ai.kb_evidence_quality import assess_kb_evidence_quality
 
         _kb_container = load_kb_evidence_snapshot(ticket_dict.get("kb_evidence_json"))
         ticket_dict["kb_evidence_snapshot"] = _kb_container
@@ -4199,6 +4200,7 @@ def ticket_detail(ticket_id):
             # Prefer saved snapshot — build display from snapshot entries
             ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_snap_entries)
             ticket_dict["kb_evidence_review_source"] = "snapshot"
+            _kb_quality_entries = _snap_entries
         else:
             # Fall back to live retrieval
             _kb_display_entries = retrieve_relevant_kb_entries(
@@ -4210,6 +4212,7 @@ def ticket_detail(ticket_id):
             )
             ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
             ticket_dict["kb_evidence_review_source"] = "live"
+            _kb_quality_entries = _kb_display_entries
 
         # ── Per-flow snapshot audit view ──────────────────────────────────────
         try:
@@ -4226,6 +4229,23 @@ def ticket_detail(ticket_id):
             ticket_dict["kb_snapshot_diff_review"] = {
                 "has_data": False, "comparisons": [], "summary": {"comparison_count": 0}
             }
+
+        # ── KB evidence quality signals ───────────────────────────────────────
+        try:
+            _kb_ticket_ctx = {
+                "subject": ticket_dict.get("subject") or "",
+                "summary": ticket_dict.get("summary") or "",
+                "template_name": ticket_dict.get("template_name") or "",
+                "workflow_name": ticket_dict.get("workflow_name") or "",
+            }
+            ticket_dict["kb_evidence_quality_review"] = assess_kb_evidence_quality(
+                _kb_quality_entries, ticket_context=_kb_ticket_ctx
+            )
+        except Exception:
+            ticket_dict["kb_evidence_quality_review"] = {
+                "has_data": False, "overall_quality": "none", "quality_score": 0,
+                "signals": [], "summary": {"entry_count": 0},
+            }
     except Exception:
         ticket_dict["kb_evidence_review"] = {"has_data": False, "entries": [], "summary": {"count": 0}}
         ticket_dict["kb_evidence_snapshot"] = {"snapshots": {}, "latest_flow": "", "updated_at": ""}
@@ -4235,6 +4255,10 @@ def ticket_detail(ticket_id):
         }
         ticket_dict["kb_snapshot_diff_review"] = {
             "has_data": False, "comparisons": [], "summary": {"comparison_count": 0}
+        }
+        ticket_dict["kb_evidence_quality_review"] = {
+            "has_data": False, "overall_quality": "none", "quality_score": 0,
+            "signals": [], "summary": {"entry_count": 0},
         }
 
     return render_template("ticket.html", ticket=ticket_dict)
