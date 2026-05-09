@@ -625,6 +625,69 @@
     </div>
     {% endif %}
 
+    <!-- SAFE TO SEND REVIEW CARD -->
+    <div class="card">
+        <h3 class="card-heading">Safe to Send Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
+        {% if ticket.safe_to_send_review and ticket.safe_to_send_review.has_data %}
+        {% set sts = ticket.safe_to_send_review %}
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+            <span style="font-size:1.5em;font-weight:700;
+                color:{% if sts.risk_level == 'low' %}#22863a{% elif sts.risk_level == 'medium' %}#b08800{% else %}#cb2431{% endif %};">
+                {{ sts.score }}/100
+            </span>
+            <span class="badge badge--{% if sts.status == 'safe_to_send' %}success{% elif sts.status == 'needs_review' %}warning{% else %}danger{% endif %}"
+                  style="font-size:0.85em;">
+                {% if sts.status == 'safe_to_send' %}✓ Safe to send
+                {% elif sts.status == 'needs_review' %}⚠ Needs review
+                {% elif sts.status == 'do_not_send' %}✗ Do not send
+                {% else %}✗ Do not send{% endif %}
+            </span>
+            <span style="font-size:0.8em;color:var(--text-muted);">
+                Risk: <strong>{{ sts.risk_level | replace('_', ' ') | title }}</strong>
+            </span>
+        </div>
+        <div style="display:flex;gap:16px;margin-bottom:10px;font-size:0.8em;color:var(--text-muted);">
+            {% if sts.summary.blocker_count > 0 %}
+            <span style="color:#cb2431;">● {{ sts.summary.blocker_count }} blocker{{ 's' if sts.summary.blocker_count != 1 }}</span>
+            {% endif %}
+            {% if sts.summary.medium_count > 0 %}
+            <span style="color:#b08800;">● {{ sts.summary.medium_count }} medium issue{{ 's' if sts.summary.medium_count != 1 }}</span>
+            {% endif %}
+            {% if sts.summary.info_count > 0 %}
+            <span>● {{ sts.summary.info_count }} info</span>
+            {% endif %}
+            <span style="color:#22863a;">● {{ sts.summary.passed_checks }} check{{ 's' if sts.summary.passed_checks != 1 }} passed</span>
+        </div>
+        {% if sts.reasons %}
+        <table style="width:100%;border-collapse:collapse;font-size:0.82em;">
+            <thead>
+                <tr style="background:var(--bg-secondary,#f6f8fa);text-align:left;">
+                    <th style="padding:4px 8px;width:90px;">Severity</th>
+                    <th style="padding:4px 8px;width:220px;">Issue</th>
+                    <th style="padding:4px 8px;">Detail</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for reason in sts.reasons %}
+                <tr style="border-top:1px solid var(--border-color,#e1e4e8);">
+                    <td style="padding:4px 8px;">
+                        <span class="badge badge--{% if reason.severity == 'blocker' %}danger{% elif reason.severity == 'medium' %}warning{% else %}info{% endif %}"
+                              style="font-size:0.78em;">{{ reason.severity }}</span>
+                    </td>
+                    <td style="padding:4px 8px;font-weight:600;">{{ reason.title }}</td>
+                    <td style="padding:4px 8px;color:var(--text-muted);">{{ reason.message }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;">No issues detected. All checks passed.</p>
+        {% endif %}
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;">No safe-to-send review available. Generate a draft and fetch ticket data to compute the review.</p>
+        {% endif %}
+    </div>
+
     <!-- PM GUARD REVIEW CARD -->
     <div class="card">
         <h3 class="card-heading">PM Guard Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
