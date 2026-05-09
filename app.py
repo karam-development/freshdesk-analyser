@@ -4187,6 +4187,7 @@ def ticket_detail(ticket_id):
         from ai.kb_snapshot_diff import build_kb_snapshot_diff_review
         from ai.kb_evidence_quality import assess_kb_evidence_quality
         from ai.safe_to_send_review import build_safe_to_send_review
+        from ai.safe_to_send_display import build_safe_to_send_display
 
         _kb_container = load_kb_evidence_snapshot(ticket_dict.get("kb_evidence_json"))
         ticket_dict["kb_evidence_snapshot"] = _kb_container
@@ -4280,6 +4281,20 @@ def ticket_detail(ticket_id):
                 "has_blockers": False, "has_medium_issues": False,
                 "blocker_count": 0, "medium_count": 0, "info_count": 0, "passed_checks": 0,
             },
+        }
+
+    try:
+        ticket_dict["safe_to_send_display"] = build_safe_to_send_display(
+            ticket_dict.get("safe_to_send_review")
+        )
+    except Exception:
+        ticket_dict["safe_to_send_display"] = {
+            "has_data": False, "status": "needs_review", "risk_level": "medium",
+            "score": 0, "badge_label": "Needs review", "severity": "warning",
+            "banner_title": "Safe-to-send review unavailable",
+            "banner_message": "Review the draft manually before sending.",
+            "copy_warning": "Safe-to-send review is unavailable. Please review manually.",
+            "top_reasons": [],
         }
 
     return render_template("ticket.html", ticket=ticket_dict)
