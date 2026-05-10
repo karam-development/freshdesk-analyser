@@ -451,6 +451,100 @@
      MAIN CONTENT GRID
      ═══════════════════════════════════════════════════════════════════ -->
 <div class="detail-grid">
+
+    <!-- PM/PO REVIEW SUMMARY CARD ════════════════════════════════════════ -->
+    {% set s = ticket.pm_po_summary %}
+    <div class="card full" style="border-left:4px solid #5046e5;background:linear-gradient(135deg,#fafafe 0%,#fff 100%);">
+        <h3 class="card-heading" style="font-size:1em;font-weight:700;color:#3730a3;margin-bottom:12px;">
+            📋 PM/PO Review Summary
+        </h3>
+        {% if s %}
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 20px;margin-bottom:14px;">
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Classification</div>
+                <div style="font-size:0.9em;font-weight:600;">{{ s.classification_label or 'Not classified' }}</div>
+            </div>
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">PM Decision</div>
+                <div style="font-size:0.9em;font-weight:600;color:{% if s.decision_raw == 'accept_bug' %}#dc2626{% elif s.decision_raw == 'feature_request' %}#7c3aed{% elif s.decision_raw == 'needs_analysis' %}#b45309{% else %}#1e40af{% endif %};">
+                    {{ s.decision_label }}
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Development needed</div>
+                <div style="font-size:0.9em;font-weight:600;">
+                    {% if s.development_needed %}
+                    <span style="color:#dc2626;">Yes — {{ s.development_type_label }}</span>
+                    {% else %}
+                    <span style="color:#16a34a;">No</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Existing solution</div>
+                <div style="font-size:0.9em;font-weight:600;">
+                    {% if s.existing_solution_found %}
+                    <span style="color:#16a34a;">Yes{% if s.existing_solution_type %} — {{ s.existing_solution_type }}{% endif %}</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);">Not found</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">Safe to send</div>
+                <div style="font-size:0.9em;font-weight:600;">
+                    {% if s.safe_to_send_status == 'safe_to_send' %}
+                    <span style="color:#16a34a;">✓ Safe to send{% if s.safe_to_send_score is not none %} ({{ s.safe_to_send_score }}/100){% endif %}</span>
+                    {% elif s.safe_to_send_status == 'needs_review' %}
+                    <span style="color:#b45309;">⚠ Needs review{% if s.safe_to_send_score is not none %} ({{ s.safe_to_send_score }}/100){% endif %}</span>
+                    {% elif s.safe_to_send_status == 'not_safe' %}
+                    <span style="color:#dc2626;">✗ Not safe{% if s.safe_to_send_score is not none %} ({{ s.safe_to_send_score }}/100){% endif %}</span>
+                    {% elif ticket.draft_response or ticket.draft_response_en %}
+                    <span style="color:var(--text-muted);">Review pending</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);">No draft yet</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div>
+                <div style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:3px;">PO Decision</div>
+                <div style="font-size:0.9em;font-weight:600;">
+                    {% if ticket.po_decision|lower == 'approved' %}<span style="color:#16a34a;">✅ Approved</span>
+                    {% elif ticket.po_decision|lower == 'declined' %}<span style="color:#dc2626;">❌ Declined</span>
+                    {% else %}<span style="color:#b45309;">⏳ Awaiting decision</span>{% endif %}
+                </div>
+            </div>
+
+        </div>
+
+        {% if s.reason %}
+        <div style="font-size:0.85em;color:var(--text-muted);background:#f8fafc;border-radius:5px;padding:8px 12px;margin-bottom:10px;">
+            <strong>PM reason:</strong> {{ s.reason }}
+        </div>
+        {% endif %}
+
+        {% if s.next_action %}
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:#eff6ff;border-radius:6px;border-left:3px solid #3b82f6;">
+            <span style="font-size:1.1em;">→</span>
+            <div>
+                <span style="font-size:0.72em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#3b82f6;">Next action</span><br>
+                <span style="font-size:0.88em;font-weight:600;color:#1e3a8a;">{{ s.next_action }}</span>
+            </div>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;">Run ticket analysis to generate the PM/PO review summary.</p>
+        {% endif %}
+    </div>
+    <!-- END PM/PO REVIEW SUMMARY -->
+
     <!-- TICKET METADATA CARD -->
     <div class="card">
         <h3 class="card-heading">Ticket Info</h3>
@@ -625,6 +719,16 @@
     </div>
     {% endif %}
 
+    <!-- ═══════════════════════════════════════════════════════════════════
+         EVIDENCE & DIAGNOSTICS (collapsed by default)
+         ═══════════════════════════════════════════════════════════════════ -->
+    <details class="card full diagnostics-section" style="padding:0;">
+        <summary style="padding:14px 18px;cursor:pointer;font-size:0.92em;font-weight:700;color:var(--text-secondary);display:flex;align-items:center;gap:8px;list-style:none;border-radius:6px;">
+            <span style="font-size:1em;">🔍</span> Evidence &amp; Diagnostics
+            <span style="font-size:0.75em;font-weight:400;color:var(--text-muted);margin-left:4px;">(click to expand — KB evidence, PM guard, snapshot details, lessons)</span>
+        </summary>
+        <div style="padding:0 4px 4px 4px;">
+
     <!-- SUPPORT EXPLANATION GUIDANCE CARD -->
     <div class="card">
         <h3 class="card-heading">Support Explanation Guidance <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
@@ -642,10 +746,25 @@
                 {% endif %}
             </div>
             <p style="font-size:0.875em;color:var(--text-muted);margin:0;">
+                {% if ticket.pm_decision.decision == 'support_guidance' %}
                 This ticket is a <strong>support/guidance</strong> case.
                 The draft agent is instructed to explain the current product behaviour, provide
                 step-by-step guidance or a workaround, and include a clear &ldquo;Next step&rdquo; for the client.
-                No development action is expected.
+                {% elif ticket.pm_decision.decision == 'explain_workaround' %}
+                The PM decision is to <strong>explain a workaround</strong>.
+                The draft agent is instructed to walk the client through the available workaround steps clearly.
+                {% elif ticket.pm_decision.decision == 'make_editable' %}
+                The PM decision is to <strong>direct the client to an existing setting</strong> they can use or edit.
+                The draft agent is instructed to explain where to find and how to use that setting.
+                {% elif ticket.pm_decision.decision == 'reuse_existing_pattern' %}
+                The PM decision is to <strong>reuse an existing template or pattern</strong>.
+                The draft agent is instructed to reference the applicable existing solution.
+                {% else %}
+                The draft agent is instructed to provide a clear explanation for the client.
+                {% endif %}
+                {% if not ticket.pm_decision.needs_development %}
+                No development action is expected for this ticket.
+                {% endif %}
             </p>
             {% if ticket.pm_decision.reason %}
             <div style="background:var(--bg-subtle,#f8fafc);border-left:3px solid #0369a1;padding:8px 12px;border-radius:0 4px 4px 0;">
@@ -1276,6 +1395,9 @@
         </script>
     </div>
 
+        </div><!-- /diagnostics inner div -->
+    </details><!-- /Evidence & Diagnostics -->
+
     <!-- PO DECISION PANEL -->
     <div class="card full" id="po-decision-panel">
         <div class="card-header-with-badge">
@@ -1463,9 +1585,10 @@
         <div class="draft-regenerate">
             <form method="POST" action="{{ url_for('generate_drafts', ticket_id=ticket.ticket_id) }}" style="display:inline;">
                 <button type="submit" class="btn btn-secondary" onclick="if(!confirm('This will overwrite existing drafts. Are you sure?')) return false; return showDraftLoading(this, event);">
-                    Regenerate Drafts
+                    Regenerate Draft (FR + EN)
                 </button>
             </form>
+            <p style="font-size:0.75em;color:var(--text-muted);margin:4px 0 0 0;">Overwrites existing draft. Use "Regenerate Draft with PM Decision" (in Evidence &amp; Diagnostics) to apply guard corrections.</p>
         </div>
 
         <!-- SAFE TO SEND DRAFT BANNER -->
@@ -2178,13 +2301,18 @@
     });
     </script>
 
-    <!-- COPY & OPEN IN FRESHDESK -->
+    <!-- DRAFT ACTIONS -->
     {% if ticket.po_decision|lower in ('approved', 'declined') and (ticket.draft_response or ticket.draft_response_en) %}
     <div class="card full">
         <h3 style="font-size:0.95em;font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            Copy & Open in Freshdesk
+            Draft Actions
         </h3>
+
+        <div style="margin-bottom:12px;padding:8px 12px;background:#fefce8;border:1px solid #fde047;border-radius:6px;font-size:0.8em;color:#713f12;display:flex;align-items:flex-start;gap:6px;">
+            <span style="flex-shrink:0;">ℹ️</span>
+            <span><strong>No reply is sent automatically.</strong> Copying only copies text to your clipboard — sending still happens manually in Freshdesk.</span>
+        </div>
 
         {% if ticket.po_decision|lower == 'approved' %}
         <p style="font-size:0.82em;color:var(--text-muted);margin-bottom:14px;">Select which sections to copy, then click the button. It copies to your clipboard and opens the Freshdesk ticket — click "Add Note" and paste (Ctrl+V).</p>
@@ -2196,15 +2324,15 @@
         {% endif %}
 
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
-            <button type="button" onclick="openInFreshdeskWithNote()" id="open-note-btn" class="btn" style="background:#5046e5;color:white;font-weight:600;display:flex;align-items:center;gap:8px;">
+            <button type="button" onclick="openInFreshdeskWithNote()" id="open-note-btn" class="btn" style="background:#5046e5;color:white;font-weight:600;display:flex;align-items:center;gap:8px;" title="Copies draft to clipboard and opens the Freshdesk ticket in a new tab">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                 Open in Freshdesk with Note
             </button>
-            <button type="button" onclick="copyAndOpenFreshdesk()" class="btn" style="background:#16a34a;color:white;font-weight:500;display:flex;align-items:center;gap:6px;">
+            <button type="button" onclick="copyAndOpenFreshdesk()" class="btn" style="background:#16a34a;color:white;font-weight:500;display:flex;align-items:center;gap:6px;" title="Copies draft to clipboard and opens Freshdesk — paste manually">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 Copy & Open
             </button>
-            <button type="button" onclick="copySelectedOnly()" class="btn btn-secondary" style="display:flex;align-items:center;gap:6px;">
+            <button type="button" onclick="copySelectedOnly()" class="btn btn-secondary" style="display:flex;align-items:center;gap:6px;" title="Copies draft to clipboard only — nothing opens">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 Copy Only
             </button>
@@ -2213,23 +2341,44 @@
     </div>
     {% endif %}
 
-    <!-- AI ASSISTANT -->
+    <!-- ASK ABOUT THIS TICKET -->
     {% if ticket.po_decision|lower in ('approved', 'declined') and (ticket.draft_response or ticket.draft_response_en) %}
     <div class="card full">
         <div class="card-header-with-badge">
             <h3 class="card-heading" style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:1.1em;">🤖</span> AI Assistant
+                <span style="font-size:1.1em;">💬</span> Ask about this ticket
             </h3>
-            <span class="card-subheading">Ask questions, request changes, or add context</span>
+            <span class="card-subheading">Refine the draft, ask for explanations, or check specific wording</span>
         </div>
 
         <div id="ai-chat-messages" class="chat-container">
             <div class="chat-message-initial">
-                You can ask me to adjust the draft responses — for example:
-                "Make the client response shorter", "Add more detail about the regulatory requirement",
-                "Change the wording from X to Y", "What does the current template actually do?",
-                or "Translate this section differently".
+                Use the quick prompts below or type your own question about the ticket, the draft, or the PM decision.
             </div>
+        </div>
+
+        <!-- Quick prompt chips -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px 0;">
+            <button type="button" onclick="setAIChatPrompt('Explain why this is expected behaviour')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                Explain why this is expected behaviour
+            </button>
+            <button type="button" onclick="setAIChatPrompt('Write a shorter client-ready response')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                Write a shorter client-ready response
+            </button>
+            <button type="button" onclick="setAIChatPrompt('What should Support do next?')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                What should Support do next?
+            </button>
+            <button type="button" onclick="setAIChatPrompt('What evidence supports this decision?')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                What evidence supports this decision?
+            </button>
+            <button type="button" onclick="setAIChatPrompt('Is this a bug or client preference?')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                Is this a bug or client preference?
+            </button>
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;font-size:0.75em;color:#475569;margin:6px 2px 4px 2px;flex-wrap:wrap;">
@@ -2245,7 +2394,7 @@
         </div>
 
         <div class="chat-input-group">
-            <input type="text" id="ai-chat-input" placeholder="Ask the AI to adjust, explain, or reword..."
+            <input type="text" id="ai-chat-input" placeholder="Ask about the ticket, the draft, the PM decision, or the client context…"
                 class="chat-input"
                 onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();sendAIChat();}">
             <button type="button" onclick="sendAIChat()" class="btn btn-primary" id="ai-chat-send">
@@ -2339,6 +2488,14 @@
             });
         }
     })();
+
+    function setAIChatPrompt(text) {
+        const input = document.getElementById('ai-chat-input');
+        if (input) {
+            input.value = text;
+            input.focus();
+        }
+    }
 
     function sendAIChat() {
         const input = document.getElementById('ai-chat-input');

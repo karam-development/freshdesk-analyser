@@ -4672,6 +4672,19 @@ def ticket_detail(ticket_id):
             "top_reasons": [],
         }
 
+    # ── PM/PO Review Summary (read-only, no LLM, no DB write) ─────────────────
+    try:
+        from ai.pm_po_summary import build_pm_po_review_summary
+        ticket_dict["pm_po_summary"] = build_pm_po_review_summary(
+            ticket=ticket_dict,
+            pm_decision=ticket_dict.get("pm_decision"),
+            safe_to_send=ticket_dict.get("safe_to_send_review"),
+            existing_solution=ticket_dict.get("existing_solution_review"),
+        )
+    except Exception as _summary_err:
+        logger.warning(f"PM/PO summary build failed: {_summary_err}")
+        ticket_dict["pm_po_summary"] = None
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 

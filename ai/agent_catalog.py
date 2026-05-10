@@ -26,7 +26,13 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
 
     Keys are lowercase agent_name values as stored in agent_model_config.
     Values have: purpose (str), used_in (str), status (str).
-    status: "active" = in use now, "reserved" = registered but not yet wired.
+
+    Status values:
+      "active"          — called in the current code path, produces output used in production
+      "configured"      — seeded in agent_model_config but not yet called in app/agents
+      "legacy_fallback" — used as a fallback path; may be superseded by LLMRouter
+      "not_wired"       — registered for future use; no call site exists yet
+      "unknown"         — status not determined
     """
     return {
         # ── Core pipeline agents (active) ──────────────────────────────────────
@@ -95,70 +101,70 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
             "used_in": "PRD generation (manual trigger on ticket page)",
             "status": "active",
         },
-        # ── Reserved / planned agents ──────────────────────────────────────────
+        # ── Not yet wired agents (seeded in config but no call site in app/agents) ──
         "classification_agent": {
             "purpose": (
-                "Reserved — dedicated fast classification pass to pre-label ticket type "
-                "before full analysis, reducing main agent token usage."
+                "Dedicated fast classification pass to pre-label ticket type before full "
+                "analysis, reducing main agent token usage. Not yet called."
             ),
-            "used_in": "Planned: pre-analysis classification",
-            "status": "reserved",
+            "used_in": "Not wired — planned: pre-analysis classification",
+            "status": "not_wired",
         },
         "summary_agent": {
             "purpose": (
-                "Reserved — generates compact ticket summaries for dashboard previews "
-                "and weekly digests."
+                "Generates compact ticket summaries for dashboard previews and weekly "
+                "digests. Not yet called."
             ),
-            "used_in": "Planned: dashboard summaries / digests",
-            "status": "reserved",
+            "used_in": "Not wired — planned: dashboard summaries / digests",
+            "status": "not_wired",
         },
         "feasibility_agent": {
             "purpose": (
-                "Reserved — dedicated technical feasibility assessment for complex change "
-                "requests, separate from the code agent brief."
+                "Dedicated technical feasibility assessment for complex change requests, "
+                "separate from code agent brief. Not yet called."
             ),
-            "used_in": "Planned: feasibility pre-screening",
-            "status": "reserved",
+            "used_in": "Not wired — planned: feasibility pre-screening",
+            "status": "not_wired",
         },
         "batch_agent": {
             "purpose": (
-                "Reserved — processes multiple tickets in a batch job (nightly re-analysis, "
-                "bulk KB refresh, scheduled re-scoring)."
+                "Processes multiple tickets in a batch job (nightly re-analysis, bulk KB "
+                "refresh, scheduled re-scoring). Not yet called."
             ),
-            "used_in": "Planned: scheduled batch processing",
-            "status": "reserved",
+            "used_in": "Not wired — planned: scheduled batch processing",
+            "status": "not_wired",
         },
         "reply_scanner_agent": {
             "purpose": (
-                "Reserved — scans incoming Freshdesk replies for PO corrections, lesson "
-                "signals, and approval confirmations to feed the learning loop."
+                "Scans incoming Freshdesk replies for PO corrections, lesson signals, and "
+                "approval confirmations to feed the learning loop. Not yet called."
             ),
-            "used_in": "Planned: reply monitoring / learning loop intake",
-            "status": "reserved",
+            "used_in": "Not wired — planned: reply monitoring / learning loop intake",
+            "status": "not_wired",
         },
         "jira_agent": {
             "purpose": (
-                "Reserved — searches and summarises Jira issues related to the ticket "
-                "subject to surface known bugs and in-flight development work."
+                "Searches and summarises Jira issues related to the ticket subject. "
+                "Currently Jira search is a direct API call — LLM agent not yet wired."
             ),
-            "used_in": "Planned: Jira context injection into drafts",
-            "status": "reserved",
+            "used_in": "Not wired — Jira search is currently a direct REST call",
+            "status": "not_wired",
         },
         "notification_agent": {
             "purpose": (
-                "Reserved — sends internal notifications (Slack, email) when tickets are "
-                "approved, flagged, or require escalation."
+                "Sends internal notifications (Slack, email) when tickets are approved, "
+                "flagged, or require escalation. Not yet called."
             ),
-            "used_in": "Planned: internal notification dispatch",
-            "status": "reserved",
+            "used_in": "Not wired — planned: internal notification dispatch",
+            "status": "not_wired",
         },
         "reporting_agent": {
             "purpose": (
-                "Reserved — generates weekly/monthly support reports: ticket volumes, "
-                "resolution rates, common patterns, PM decision breakdown."
+                "Generates weekly/monthly support reports: ticket volumes, resolution rates, "
+                "common patterns, PM decision breakdown. Not yet called."
             ),
-            "used_in": "Planned: management reporting",
-            "status": "reserved",
+            "used_in": "Not wired — planned: management reporting",
+            "status": "not_wired",
         },
     }
 
