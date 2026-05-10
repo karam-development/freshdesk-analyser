@@ -2047,9 +2047,14 @@ def create_jira_ticket_from_freshdesk(ticket, db=None, overrides=None):
     return jira_key, jira_url
 
 
-def analyze_and_draft_ai(compiled_thread, anthropic_key, writing_style="customer_support", kb_context="", project_instructions="", terminology_context="", code_context="", client_context=""):
+def analyze_and_draft_ai(compiled_thread, anthropic_key, writing_style="customer_support", kb_context="", project_instructions="", terminology_context="", code_context="", client_context="", db=None):
     """Analyze a ticket: classify, score RICE, and produce a detailed analysis summary.
-    Draft responses are generated SEPARATELY after PO approval — not in this call."""
+    Draft responses are generated SEPARATELY after PO approval — not in this call.
+
+    When ``db`` is provided, attempts to use LLMRouter (main_analysis_agent) via
+    llm_api_key.  Falls back to the legacy direct Anthropic path on failure so
+    existing deploys without llm_api_key are unaffected.
+    """
     client = Anthropic(api_key=anthropic_key)
 
     project_ctx = ""
@@ -2193,22 +2198,52 @@ Reply ONLY with valid JSON (no markdown, no code blocks):
     if short_kb:
         user_msg += f"\n\nKNOWLEDGE BASE CONTEXT — YOU MUST READ AND VERIFY AGAINST THIS BEFORE CLASSIFYING OR SCORING. Contains commercial law provisions, chart of accounts, template docs. Never contradict this KB:\n{short_kb}"
 
+    # ── LLMRouter path (when db provided and llm_api_key configured) ─────────
+    _router_text = None
+    if db is not None:
+        try:
+            from ai.main_llm import complete_main_llm
+            _router_msgs = [{"role": "user", "content": user_msg}]
+            _router_result = complete_main_llm(
+                db, "main_analysis_agent", system, _router_msgs,
+                purpose="ticket_analysis", max_tokens=1500,
+            )
+            if _router_result["ok"]:
+                logger.info(
+                    f"analyze_and_draft_ai: LLMRouter OK "
+                    f"provider={_router_result['provider']} model={_router_result['model']}"
+                )
+                _router_text = _router_result["text"]
+            else:
+                logger.warning(
+                    f"analyze_and_draft_ai: LLMRouter failed "
+                    f"({_router_result['error']}), falling back to legacy path"
+                )
+        except Exception as _rt_exc:
+            logger.warning(f"analyze_and_draft_ai: router exception {_rt_exc}, using legacy path")
+
     # Retry loop: if JSON parse fails on first attempt, retry once with a nudge
     max_attempts = 2
     last_raw_output = ""
     for attempt in range(max_attempts):
-        resp = call_anthropic_with_retry(
-            client,
-            model="claude-sonnet-4-5",
-            max_tokens=1500,
-            system=system,
-            messages=[{"role": "user", "content": user_msg}] if attempt == 0 else [
-                {"role": "user", "content": user_msg},
-                {"role": "assistant", "content": last_raw_output},
-                {"role": "user", "content": "Your previous response was not valid JSON. Please reply with ONLY valid JSON (no markdown, no code blocks, no explanations). Start with { and end with }."}
-            ],
-        )
-        text = resp.content[0].text.strip()
+        if _router_text is not None and attempt == 0:
+            # Use the already-fetched router response for the first attempt
+            text_raw = _router_text
+            _router_text = None  # consume; subsequent attempts use legacy path
+        else:
+            resp = call_anthropic_with_retry(
+                client,
+                model="claude-sonnet-4-5",
+                max_tokens=1500,
+                system=system,
+                messages=[{"role": "user", "content": user_msg}] if attempt == 0 else [
+                    {"role": "user", "content": user_msg},
+                    {"role": "assistant", "content": last_raw_output},
+                    {"role": "user", "content": "Your previous response was not valid JSON. Please reply with ONLY valid JSON (no markdown, no code blocks, no explanations). Start with { and end with }."}
+                ],
+            )
+            text_raw = resp.content[0].text
+        text = text_raw.strip()
         last_raw_output = text
 
         if text.startswith("```"):
@@ -2249,10 +2284,15 @@ Reply ONLY with valid JSON (no markdown, no code blocks):
 
 def generate_draft_response(compiled_thread, anthropic_key, lang="fr", writing_style="customer_support",
                             kb_context="", project_instructions="", analysis="", po_reason="", code_context="", terminology_context="", ticket_id=None, force_simple=False,
-                            classification="", priority=""):
+                            classification="", priority="", db=None):
     """Generate a draft response (in a specific language) for an APPROVED ticket.
     This is called AFTER PO approval, separately from the analysis step.
-    Produces 3 sections: CLIENT RESPONSE, INTERNAL NOTE (BSO LUX), BACKLOG TICKET."""
+    Produces 3 sections: CLIENT RESPONSE, INTERNAL NOTE (BSO LUX), BACKLOG TICKET.
+
+    When ``db`` is provided and no screenshot blocks are present, attempts to use
+    LLMRouter (draft_response_agent).  Falls back to the legacy direct Anthropic
+    path on any failure.
+    """
     client = Anthropic(api_key=anthropic_key)
     style = WRITING_STYLES.get(writing_style, WRITING_STYLES["customer_support"])
 
@@ -2568,6 +2608,31 @@ Reply with ONLY the response text starting with "--- CLIENT RESPONSE ---". No JS
     else:
         user_content = user_text
 
+    # ── LLMRouter path (text-only; screenshot calls stay on legacy path) ──────
+    if db is not None and not screenshot_blocks:
+        try:
+            from ai.main_llm import complete_main_llm
+            _dr_result = complete_main_llm(
+                db, "draft_response_agent", system,
+                [{"role": "user", "content": user_text}],
+                purpose="draft_response",
+                max_tokens=600 if force_simple else 2000,
+            )
+            if _dr_result["ok"]:
+                logger.info(
+                    f"generate_draft_response: LLMRouter OK "
+                    f"provider={_dr_result['provider']} model={_dr_result['model']}"
+                )
+                return strip_code_from_output(_dr_result["text"].strip())
+            else:
+                logger.warning(
+                    f"generate_draft_response: LLMRouter failed "
+                    f"({_dr_result['error']}), falling back to legacy path"
+                )
+        except Exception as _dr_exc:
+            logger.warning(f"generate_draft_response: router exception {_dr_exc}, using legacy path")
+
+    # ── Legacy direct Anthropic path ─────────────────────────────────────────
     resp = call_anthropic_with_retry(
         client,
         model="claude-sonnet-4-5",
@@ -2700,10 +2765,13 @@ Reply with ONLY the response text. No JSON, no markdown blocks, no section heade
     return strip_code_from_output(resp.content[0].text.strip())
 
 
-def translate_draft(text, source_lang, target_lang, anthropic_key):
-    """Translate a draft response from one language to another using Haiku (fast + cheap).
-    Preserves the exact structure, section headers, meaning, and proposed wordings.
-    The ONLY thing that changes is the language of the surrounding text."""
+def translate_draft(text, source_lang, target_lang, anthropic_key, db=None):
+    """Translate a draft response from one language to another.
+
+    When ``db`` is provided, attempts LLMRouter (draft_response_agent) first.
+    Falls back to the legacy direct Anthropic Haiku path on failure.
+    The ONLY thing that changes is the language of the surrounding text.
+    """
     if not text or not text.strip():
         return text
 
@@ -2727,6 +2795,31 @@ RULES:
 
 Reply with ONLY the translated text. No explanations."""
 
+    # ── LLMRouter path ────────────────────────────────────────────────────────
+    if db is not None:
+        try:
+            from ai.main_llm import complete_main_llm
+            _tr_result = complete_main_llm(
+                db, "draft_response_agent", system,
+                [{"role": "user", "content": text}],
+                purpose=f"translate_{source_lang}_to_{target_lang}",
+                max_tokens=2500,
+            )
+            if _tr_result["ok"]:
+                logger.info(
+                    f"translate_draft: LLMRouter OK "
+                    f"provider={_tr_result['provider']} model={_tr_result['model']}"
+                )
+                return strip_code_from_output(_tr_result["text"].strip())
+            else:
+                logger.warning(
+                    f"translate_draft: LLMRouter failed "
+                    f"({_tr_result['error']}), falling back to legacy path"
+                )
+        except Exception as _tr_exc:
+            logger.warning(f"translate_draft: router exception {_tr_exc}, using legacy path")
+
+    # ── Legacy direct Anthropic path (Haiku — fast + cheap) ──────────────────
     resp = call_anthropic_with_retry(
         client,
         model="claude-haiku-4-5-20251001",
@@ -3289,7 +3382,7 @@ def run_analysis_job():
 
                         # 2c. Main Analysis Agent (existing function, now with enriched context)
                         _update_job(progress=f"Analyzing ticket {tid} ({i+1}/{len(ticket_list)})...")
-                        result = analyze_and_draft_ai(compiled, anthropic_key, writing_style, enhanced_kb, project_instr, term_context, effective_code_ctx, client_ctx)
+                        result = analyze_and_draft_ai(compiled, anthropic_key, writing_style, enhanced_kb, project_instr, term_context, effective_code_ctx, client_ctx, db=db)
 
                         # NOTE: QA is deferred to when the PO saves/reviews the ticket.
 
@@ -4700,15 +4793,16 @@ def generate_drafts(ticket_id):
         # Sanitize to remove any code Haiku may have slipped into its "plain language" brief
         effective_code_ctx = strip_code_from_output(code_brief) if code_brief else ""
 
-        # 3. Generate FR draft (Sonnet — full reasoning)
+        # 3. Generate FR draft (via LLMRouter when llm_api_key set, else legacy)
         result_fr = generate_draft_response(compiled, anthropic_key, "fr", writing_style, enhanced_kb, project_instr,
                                             ticket["analysis"] or "", ticket["po_decision_reason"] or "", effective_code_ctx,
                                             terminology_context=term_context, ticket_id=ticket_id,
                                             classification=_row_get(ticket, "classification", ""),
-                                            priority=str(_row_get(ticket, "priority", "")))
+                                            priority=str(_row_get(ticket, "priority", "")),
+                                            db=db)
 
-        # 4. Translate FR → EN (Haiku — fast, consistent, same content)
-        result_en = translate_draft(result_fr, "fr", "en", anthropic_key)
+        # 4. Translate FR → EN (via LLMRouter when llm_api_key set, else legacy)
+        result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         # Lightweight complexity check: if the analysis says it's a simple fix
         # (translation, wording, label) but the draft is excessively long, regenerate
@@ -4747,9 +4841,10 @@ def generate_drafts(ticket_id):
                 terminology_context=term_context, ticket_id=ticket_id,
                 force_simple=True,
                 classification=_row_get(ticket, "classification", ""),
-                priority=str(_row_get(ticket, "priority", ""))
+                priority=str(_row_get(ticket, "priority", "")),
+                db=db,
             )
-            result_en = translate_draft(result_fr, "fr", "en", anthropic_key)
+            result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         # 5. Validate translation: reverse-translate EN→FR and check for legal term drift
         result_en = validate_translation(result_fr, result_en, anthropic_key)
@@ -4976,17 +5071,18 @@ def regenerate_draft_pm(ticket_id):
             f"(warnings={len(_guard_warnings)}, decision={_pm_dec.get('decision')})"
         )
 
-        # ── Generate FR draft ─────────────────────────────────────────────────
+        # ── Generate FR draft (via LLMRouter when llm_api_key set, else legacy) ─
         result_fr = generate_draft_response(
             compiled, anthropic_key, "fr", writing_style, enhanced_kb, project_instr,
             ticket["analysis"] or "", ticket["po_decision_reason"] or "", code_ctx,
             terminology_context=term_context, ticket_id=ticket_id,
             classification=_row_get(ticket, "classification", ""),
             priority=str(_row_get(ticket, "priority", "")),
+            db=db,
         )
 
         # ── Translate FR → EN ─────────────────────────────────────────────────
-        result_en = translate_draft(result_fr, "fr", "en", anthropic_key)
+        result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         # ── Validate translation ──────────────────────────────────────────────
         result_en = validate_translation(result_fr, result_en, anthropic_key)
@@ -5099,8 +5195,8 @@ def generate_decline_drafts(ticket_id):
                                               ticket["analysis"] or "", ticket["po_decision_reason"] or "", effective_code_ctx,
                                               terminology_context=term_context, ticket_id=ticket_id)
 
-        # Translate FR → EN (Haiku — fast, consistent, same content)
-        result_en = translate_draft(result_fr, "fr", "en", anthropic_key)
+        # Translate FR → EN (via LLMRouter when llm_api_key set, else legacy)
+        result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         db.execute(
             "UPDATE tickets SET draft_response = ?, draft_response_en = ? WHERE ticket_id = ?",
@@ -5528,11 +5624,15 @@ LUXEMBOURG LEGAL TERMINOLOGY:
         return jsonify({"error": f"AI request failed: {str(e)[:200]}"}), 500
 
 
-def generate_prd_analysis(compiled_thread, anthropic_key, lang, existing_analysis="", project_instructions="", kb_context="", code_context="", terminology_context="", po_draft_response="", ticket_id=None):
+def generate_prd_analysis(compiled_thread, anthropic_key, lang, existing_analysis="", project_instructions="", kb_context="", code_context="", terminology_context="", po_draft_response="", ticket_id=None, db=None):
     """Generate deep functional analysis content for the PRD document using AI.
     Uses a comprehensive prompt that produces developer-ready functional specs.
     If a PO draft response is provided (edited via AI assistant), use it as the PRIMARY source of truth.
-    The AI also analyses template code to propose solutions based on existing patterns in the same template."""
+    The AI also analyses template code to propose solutions based on existing patterns in the same template.
+
+    When ``db`` is provided and no screenshot blocks are present, attempts to use
+    LLMRouter (prd_agent).  Falls back to the legacy direct Anthropic path on failure.
+    """
     client = Anthropic(api_key=anthropic_key)
 
     project_section = ("Project context & instructions:\n" + truncate_text(project_instructions, 2000)) if project_instructions else ""
@@ -5747,14 +5847,43 @@ IMPORTANT — the new_behaviour_subsections array:
     else:
         user_content = user_text
 
-    resp = call_anthropic_with_retry(
-        client,
-        model="claude-sonnet-4-5",
-        max_tokens=10000,
-        system=system,
-        messages=[{"role": "user", "content": user_content}],
-    )
-    text = resp.content[0].text.strip()
+    # ── LLMRouter path (text-only; screenshot calls stay on legacy path) ──────
+    _prd_text = None
+    if db is not None and not screenshot_blocks:
+        try:
+            from ai.main_llm import complete_main_llm
+            _prd_result = complete_main_llm(
+                db, "prd_agent", system,
+                [{"role": "user", "content": user_text}],
+                purpose="prd_analysis",
+                max_tokens=10000,
+            )
+            if _prd_result["ok"]:
+                logger.info(
+                    f"generate_prd_analysis: LLMRouter OK "
+                    f"provider={_prd_result['provider']} model={_prd_result['model']}"
+                )
+                _prd_text = _prd_result["text"]
+            else:
+                logger.warning(
+                    f"generate_prd_analysis: LLMRouter failed "
+                    f"({_prd_result['error']}), falling back to legacy path"
+                )
+        except Exception as _prd_exc:
+            logger.warning(f"generate_prd_analysis: router exception {_prd_exc}, using legacy path")
+
+    if _prd_text is None:
+        # ── Legacy direct Anthropic path ──────────────────────────────────────
+        resp = call_anthropic_with_retry(
+            client,
+            model="claude-sonnet-4-5",
+            max_tokens=10000,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        _prd_text = resp.content[0].text
+
+    text = _prd_text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):
@@ -6055,6 +6184,7 @@ def prepare_analysis(ticket_id):
             terminology_context=term_context,
             po_draft_response=current_draft,
             ticket_id=ticket_id,
+            db=db,
         )
 
         # ── PM analysis guard: warn on constraint violations (warning-only) ───
