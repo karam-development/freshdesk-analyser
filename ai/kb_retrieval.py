@@ -446,6 +446,35 @@ def summarize_kb_evidence(
     return "RELEVANT KB EVIDENCE:\n" + "\n".join(lines)
 
 
+def prepare_kb_entries_for_semantic(entries: List[dict]) -> List[dict]:
+    """Build semantic-ready chunk records from retrieved KB entries.
+
+    This is a thin bridge to ``ai.kb_semantic_foundation.build_semantic_kb_records``.
+    It is provided here for convenience so callers can stay within this module.
+
+    Important
+    ---------
+    - Does NOT change ``retrieve_relevant_kb_entries`` in any way.
+    - Does NOT persist records to the DB.
+    - Should NOT be called from production routes yet (PR 37 is foundation-only).
+    - Safe to call at any time: returns ``[]`` on import failure or empty input.
+
+    Parameters
+    ----------
+    entries : list[dict]
+        Typically the output of ``retrieve_relevant_kb_entries``.
+
+    Returns
+    -------
+    list[dict]  — semantic records as defined in ``kb_semantic_foundation``.
+    """
+    try:
+        from ai.kb_semantic_foundation import build_semantic_kb_records  # noqa: PLC0415
+        return build_semantic_kb_records(entries)
+    except Exception:
+        return []
+
+
 def derive_kb_evidence_signals(entries: List[dict]) -> dict:
     """Aggregate boolean signals from a list of retrieved KB entries.
 
