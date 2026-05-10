@@ -124,10 +124,11 @@ def test_template_banner_before_ticket_form():
 
 
 def test_template_banner_after_regenerate_drafts():
-    regen_pos  = TEMPLATE_SRC.find("Regenerate Drafts")
+    # Button was renamed from "Regenerate Drafts" → "Regenerate Draft (FR + EN)"
+    regen_pos  = TEMPLATE_SRC.find("Regenerate Draft")
     banner_pos = TEMPLATE_SRC.find("SAFE TO SEND DRAFT BANNER")
-    assert regen_pos != -1
-    assert banner_pos != -1
+    assert regen_pos != -1, "Regenerate Draft button must exist in the template"
+    assert banner_pos != -1, "SAFE TO SEND DRAFT BANNER comment must exist"
     assert banner_pos > regen_pos
 
 
