@@ -122,6 +122,20 @@ After deployment, run these checks manually:
 
 ---
 
+## Semantic RAG (optional feature)
+
+Semantic KB retrieval is **disabled by default**.  To enable it:
+
+- [ ] Configure LLM provider and API key in Settings (OpenAI required for embeddings)
+- [ ] Set `semantic_rag_enabled` = `true` in Settings (or via DB)
+- [ ] Understand that embedding API calls will incur cost (per-token billing)
+- [ ] Embeddings are cached in `kb_embedding_cache`; first-run will call the API for all KB entries
+- [ ] Keyword retrieval remains the fallback; any embedding failure falls back silently
+- [ ] Do NOT enable in production without testing on a non-critical environment first
+- [ ] Do NOT expose the embedding API key in logs, URLs, or error messages
+
+---
+
 ## Rollback Plan
 
 1. **Code rollback:** `git revert` the offending commit and redeploy; or roll back the Render service to the previous deploy
@@ -138,7 +152,7 @@ The following items are intentionally not in scope for this release:
 | Item | Rationale |
 |------|-----------|
 | Vision/screenshot LLM routing | Multimodal paths always use legacy Anthropic client (LLMRouter limitation) |
-| Semantic RAG / embeddings | Not started; KB retrieval uses keyword/heuristic matching |
+| Semantic RAG / embeddings | Available behind `semantic_rag_enabled=true` flag; off by default; requires OpenAI API key |
 | Multi-provider fallback | Silent fallback removed; explicit failure on provider error |
 | Real-time Freshdesk webhooks | Polling only; webhooks deferred |
 | Role-based access control | Single-user app in current scope |

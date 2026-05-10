@@ -446,6 +446,86 @@ def summarize_kb_evidence(
     return "RELEVANT KB EVIDENCE:\n" + "\n".join(lines)
 
 
+def retrieve_hybrid_kb_entries(
+    db,
+    ticket_context: dict,
+    keyword_entries: List[dict],
+    semantic_entries: List[dict],
+    top_n: int = 8,
+) -> List[dict]:
+    """Merge keyword and semantic KB entries into a single ranked list.
+
+    Rules
+    -----
+    - Keyword entries are the primary results and keep their original scores.
+    - Semantic entries not already covered by keyword results are appended.
+    - Deduplication is by ``entry_id`` (falling back to normalised title).
+    - Entries that appear in both sets receive ``source="hybrid"``.
+    - Keyword-only entries receive ``source="keyword"``.
+    - Semantic-only entries receive ``source="semantic"``.
+    - The merged list is capped to *top_n*.
+
+    Parameters
+    ----------
+    db :
+        Unused in current implementation; reserved for future score fusion.
+    ticket_context : dict
+        Unused in current implementation; reserved for future re-ranking.
+    keyword_entries : list[dict]
+        Entries from ``retrieve_relevant_kb_entries``.
+    semantic_entries : list[dict]
+        Entries from ``build_semantic_evidence_entries``.
+    top_n : int
+        Maximum number of entries to return.
+
+    Returns
+    -------
+    list[dict]
+        Does NOT alter ``retrieve_relevant_kb_entries`` default behaviour —
+        this function is only called when semantic RAG is explicitly enabled.
+        Never raises.
+    """
+    try:
+        merged: List[dict] = []
+        seen_ids: set = set()
+
+        def _entry_key(e: dict) -> str:
+            raw_id = e.get("entry_id") or e.get("id")
+            if raw_id is not None:
+                return str(raw_id)
+            return normalize_text(e.get("title") or "")
+
+        # Pass 1: keyword entries (primary, mark as keyword)
+        for entry in (keyword_entries or []):
+            key = _entry_key(entry)
+            e = dict(entry)
+            e["source"] = "keyword"
+            merged.append(e)
+            if key:
+                seen_ids.add(key)
+
+        # Pass 2: semantic entries — upgrade to hybrid if duplicate, else append
+        for entry in (semantic_entries or []):
+            key = _entry_key(entry)
+            if key and key in seen_ids:
+                # Mark the existing keyword entry as hybrid
+                for m in merged:
+                    if _entry_key(m) == key:
+                        m["source"] = "hybrid"
+                        break
+            else:
+                e = dict(entry)
+                e["source"] = "semantic"
+                merged.append(e)
+                if key:
+                    seen_ids.add(key)
+
+        return merged[:top_n]
+    except Exception:
+        # Fail-safe: return keyword results unchanged
+        return list(keyword_entries or [])[:top_n]
+
+
 def prepare_kb_entries_for_semantic(entries: List[dict]) -> List[dict]:
     """Build semantic-ready chunk records from retrieved KB entries.
 
