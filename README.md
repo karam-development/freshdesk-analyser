@@ -14,8 +14,11 @@ analyses them with an LLM, generates draft replies, and tracks BSO metrics.
 |----------|-------------|
 | [Team Demo Guide](docs/TEAM_DEMO_GUIDE.md) | How to run and demo the app for the team |
 | [Production Checklist](docs/PRODUCTION_CHECKLIST.md) | Pre-deployment and operational requirements |
+| [Live Demo Smoke Test](docs/LIVE_DEMO_SMOKE_TEST.md) | Manual and automated pre-demo checks |
 
 > **Safety rule:** AI drafts are suggestions only — no auto-send behaviour exists. Human review is required before any reply is sent.
+
+> **Security:** A Security Readiness card is available on the Settings page and via `GET /api/security-readiness`. It checks for weak `SECRET_KEY`, enabled debug mode, and missing API keys — without exposing any secret values.
 
 ---
 

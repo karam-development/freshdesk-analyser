@@ -18,7 +18,7 @@ Each step is manual unless noted as automated.
 
 ## 1. Settings readiness
 
-**What to check:** Settings page shows the System Readiness card with status **Ready**.
+**What to check:** Settings page shows the System Readiness card with status **Ready**, and the Security Readiness card shows no critical failures.
 
 Steps:
 1. Go to **Settings** (`/settings`)
@@ -26,15 +26,19 @@ Steps:
 3. Confirm status badge shows **Ready** (green)
 4. Confirm score is ≥ 85/100
 5. Confirm no **fail** checks are listed (warnings are acceptable)
+6. Confirm the **Security Readiness** card shows no critical failures (status should not be **Unsafe for production**)
 
 If not ready:
 - Set LLM provider and API key in AI Provider Configuration
 - Set Freshdesk domain and API key in Freshdesk Configuration
 - Add at least one Knowledge Base entry
+- Set `SECRET_KEY` environment variable to a strong non-default value
+- Disable debug mode (`FLASK_DEBUG=0`) if enabled
 
 Automated equivalent:
 ```
-GET /api/system-readiness  →  {"ok": true, "report": {"status": "ready", "score": ≥85, ...}}
+GET /api/system-readiness   →  {"ok": true, "report": {"status": "ready", "score": ≥85, ...}}
+GET /api/security-readiness →  {"ok": true, "report": {"status": "secure_enough_for_demo", ...}}
 ```
 
 ---
@@ -194,7 +198,7 @@ Steps:
 
 | # | Step | Status |
 |---|------|--------|
-| 1 | Settings readiness — System Readiness card shows Ready | ☐ |
+| 1 | Settings readiness — System Readiness card shows Ready; Security Readiness shows no critical fail | ☐ |
 | 2 | Freshdesk connection — Test Connection passes | ☐ |
 | 3 | LLM provider connection — Test LLM Connection passes | ☐ |
 | 4 | Ticket inbox — tickets visible with classification badges | ☐ |

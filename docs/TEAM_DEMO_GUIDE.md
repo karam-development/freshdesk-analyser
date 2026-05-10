@@ -31,6 +31,19 @@ The Freshdesk AI Analyser is a **human-in-the-loop** assistant for product suppo
 
 ---
 
+## Before Sharing Your Screen
+
+Do this before any screen share, recording, or demo:
+
+- [ ] **Hide secrets**: close or blur any terminal/env file showing API keys or `SECRET_KEY`
+- [ ] **Do not open** raw `.env` files, the SQLite DB, or any config file containing key values
+- [ ] **Use test or sandbox tickets** where possible — avoid sharing real customer data on screen
+- [ ] **Confirm no auto-send**: remind the audience that no reply is ever sent without a human clicking send in Freshdesk
+- [ ] **Human review required**: make clear that every AI draft needs human review before use
+- [ ] **Check Security Readiness**: Settings → Security Readiness card should show no critical failures before the demo
+
+---
+
 ## Demo Setup Checklist
 
 Before the demo, verify:
@@ -40,6 +53,7 @@ Before the demo, verify:
 - [ ] Freshdesk domain and API key are configured
 - [ ] At least one KB entry exists (for KB evidence to appear)
 - [ ] System Readiness card on the Settings page shows **Ready** or **Degraded** (not **Needs configuration**)
+- [ ] Security Readiness card on the Settings page shows no critical failures
 - [ ] At least one ticket is visible in the inbox
 - [ ] Agent model configs are seeded (visible on the Agents page)
 
@@ -153,4 +167,4 @@ LLMRouter is the provider-agnostic routing layer:
 
 ---
 
-*This guide covers the app as of the production-hardening release. See `docs/PRODUCTION_CHECKLIST.md` for deployment requirements.*
+*This guide covers the app as of the security-hardening release. See `docs/PRODUCTION_CHECKLIST.md` for deployment requirements.*
