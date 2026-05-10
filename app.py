@@ -2051,9 +2051,10 @@ def analyze_and_draft_ai(compiled_thread, anthropic_key, writing_style="customer
     """Analyze a ticket: classify, score RICE, and produce a detailed analysis summary.
     Draft responses are generated SEPARATELY after PO approval — not in this call.
 
-    When ``db`` is provided, attempts to use LLMRouter (main_analysis_agent) via
-    llm_api_key.  Falls back to the legacy direct Anthropic path on failure so
-    existing deploys without llm_api_key are unaffected.
+    Routing:
+    - ``db`` provided → LLMRouter (main_analysis_agent) only.  No silent fallback to
+      legacy Anthropic.  Router failure returns a clear error dict so the PO sees it.
+    - ``db`` is None → legacy direct Anthropic path (backward compat for old call sites).
     """
     client = Anthropic(api_key=anthropic_key)
 
@@ -2198,49 +2199,65 @@ Reply ONLY with valid JSON (no markdown, no code blocks):
     if short_kb:
         user_msg += f"\n\nKNOWLEDGE BASE CONTEXT — YOU MUST READ AND VERIFY AGAINST THIS BEFORE CLASSIFYING OR SCORING. Contains commercial law provisions, chart of accounts, template docs. Never contradict this KB:\n{short_kb}"
 
-    # ── LLMRouter path (when db provided and llm_api_key configured) ─────────
-    _router_text = None
-    if db is not None:
-        try:
-            from ai.main_llm import complete_main_llm
-            _router_msgs = [{"role": "user", "content": user_msg}]
-            _router_result = complete_main_llm(
-                db, "main_analysis_agent", system, _router_msgs,
-                purpose="ticket_analysis", max_tokens=1500,
-            )
-            if _router_result["ok"]:
-                logger.info(
-                    f"analyze_and_draft_ai: LLMRouter OK "
-                    f"provider={_router_result['provider']} model={_router_result['model']}"
-                )
-                _router_text = _router_result["text"]
-            else:
-                logger.warning(
-                    f"analyze_and_draft_ai: LLMRouter failed "
-                    f"({_router_result['error']}), falling back to legacy path"
-                )
-        except Exception as _rt_exc:
-            logger.warning(f"analyze_and_draft_ai: router exception {_rt_exc}, using legacy path")
-
-    # Retry loop: if JSON parse fails on first attempt, retry once with a nudge
+    # ── Routing: LLMRouter when db provided; legacy when db is None ──────────
+    # Retry loop handles JSON-parse failures (up to 2 attempts).
+    _nudge = ("Your previous response was not valid JSON. "
+              "Please reply with ONLY valid JSON (no markdown, no code blocks, "
+              "no explanations). Start with { and end with }.")
     max_attempts = 2
     last_raw_output = ""
     for attempt in range(max_attempts):
-        if _router_text is not None and attempt == 0:
-            # Use the already-fetched router response for the first attempt
-            text_raw = _router_text
-            _router_text = None  # consume; subsequent attempts use legacy path
+        _msgs = (
+            [{"role": "user", "content": user_msg}] if attempt == 0 else [
+                {"role": "user", "content": user_msg},
+                {"role": "assistant", "content": last_raw_output},
+                {"role": "user", "content": _nudge},
+            ]
+        )
+        if db is not None:
+            # Router-only path — no silent fallback to legacy Anthropic.
+            # max_tokens not forced: agent config (main_analysis_agent) defaults to 4000.
+            try:
+                from ai.main_llm import complete_main_llm
+                _router_result = complete_main_llm(
+                    db, "main_analysis_agent", system, _msgs,
+                    purpose="ticket_analysis",
+                )
+            except Exception as _rt_exc:
+                logger.error(
+                    f"analyze_and_draft_ai: complete_main_llm raised {type(_rt_exc).__name__}"
+                )
+                return {
+                    "classification": "other", "confidence": 0, "needs_review": True,
+                    "summary": "Analysis failed — LLM provider error",
+                    "analysis": f"[ROUTER ERROR] {type(_rt_exc).__name__}",
+                    "risk_level": "medium", "draft_response": "",
+                    "template_name": "", "workflow_name": "",
+                }
+            if not _router_result["ok"]:
+                logger.error(
+                    f"analyze_and_draft_ai: LLMRouter failed ({_router_result['error']})"
+                )
+                return {
+                    "classification": "other", "confidence": 0, "needs_review": True,
+                    "summary": "Analysis failed — LLM provider error",
+                    "analysis": f"[ROUTER ERROR] {_router_result['error']}",
+                    "risk_level": "medium", "draft_response": "",
+                    "template_name": "", "workflow_name": "",
+                }
+            logger.info(
+                f"analyze_and_draft_ai: LLMRouter OK attempt={attempt} "
+                f"provider={_router_result['provider']} model={_router_result['model']}"
+            )
+            text_raw = _router_result["text"]
         else:
+            # Legacy direct Anthropic path (db is None — backward compat).
             resp = call_anthropic_with_retry(
                 client,
                 model="claude-sonnet-4-5",
-                max_tokens=1500,
+                max_tokens=4000,
                 system=system,
-                messages=[{"role": "user", "content": user_msg}] if attempt == 0 else [
-                    {"role": "user", "content": user_msg},
-                    {"role": "assistant", "content": last_raw_output},
-                    {"role": "user", "content": "Your previous response was not valid JSON. Please reply with ONLY valid JSON (no markdown, no code blocks, no explanations). Start with { and end with }."}
-                ],
+                messages=_msgs,
             )
             text_raw = resp.content[0].text
         text = text_raw.strip()
@@ -2289,9 +2306,12 @@ def generate_draft_response(compiled_thread, anthropic_key, lang="fr", writing_s
     This is called AFTER PO approval, separately from the analysis step.
     Produces 3 sections: CLIENT RESPONSE, INTERNAL NOTE (BSO LUX), BACKLOG TICKET.
 
-    When ``db`` is provided and no screenshot blocks are present, attempts to use
-    LLMRouter (draft_response_agent).  Falls back to the legacy direct Anthropic
-    path on any failure.
+    Routing:
+    - Screenshot / vision content → legacy direct Anthropic always (router does not
+      support multimodal content yet).
+    - ``db`` provided, text-only → LLMRouter (draft_response_agent) only.  No silent
+      fallback; raises RuntimeError on failure so the caller sees the error.
+    - ``db`` is None → legacy direct Anthropic (backward compat for old call sites).
     """
     client = Anthropic(api_key=anthropic_key)
     style = WRITING_STYLES.get(writing_style, WRITING_STYLES["customer_support"])
@@ -2602,43 +2622,50 @@ Reply with ONLY the response text starting with "--- CLIENT RESPONSE ---". No JS
     if ticket_id:
         screenshot_blocks = load_screenshots_for_ai(ticket_id)
 
+    # ── Vision path: LLMRouter does not support multimodal content. ──────────
+    # Screenshot-bearing requests always use the legacy direct Anthropic path.
     if screenshot_blocks:
-        # Build multimodal content: screenshots first, then text
         user_content = screenshot_blocks + [{"type": "text", "text": user_text}]
-    else:
-        user_content = user_text
+        resp = call_anthropic_with_retry(
+            client,
+            model="claude-sonnet-4-5",
+            max_tokens=600 if force_simple else 4000,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        return strip_code_from_output(resp.content[0].text.strip())
 
-    # ── LLMRouter path (text-only; screenshot calls stay on legacy path) ──────
-    if db is not None and not screenshot_blocks:
+    # ── Router path (text-only, db provided) — no silent fallback ────────────
+    if db is not None:
         try:
             from ai.main_llm import complete_main_llm
             _dr_result = complete_main_llm(
                 db, "draft_response_agent", system,
                 [{"role": "user", "content": user_text}],
                 purpose="draft_response",
-                max_tokens=600 if force_simple else 2000,
+                max_tokens=600 if force_simple else 4000,
             )
-            if _dr_result["ok"]:
-                logger.info(
-                    f"generate_draft_response: LLMRouter OK "
-                    f"provider={_dr_result['provider']} model={_dr_result['model']}"
-                )
-                return strip_code_from_output(_dr_result["text"].strip())
-            else:
-                logger.warning(
-                    f"generate_draft_response: LLMRouter failed "
-                    f"({_dr_result['error']}), falling back to legacy path"
-                )
         except Exception as _dr_exc:
-            logger.warning(f"generate_draft_response: router exception {_dr_exc}, using legacy path")
+            raise RuntimeError(
+                f"Draft generation failed (LLM provider error): {type(_dr_exc).__name__}"
+            ) from _dr_exc
+        if not _dr_result["ok"]:
+            raise RuntimeError(
+                f"Draft generation failed (LLM provider error): {_dr_result['error']}"
+            )
+        logger.info(
+            f"generate_draft_response: LLMRouter OK "
+            f"provider={_dr_result['provider']} model={_dr_result['model']}"
+        )
+        return strip_code_from_output(_dr_result["text"].strip())
 
-    # ── Legacy direct Anthropic path ─────────────────────────────────────────
+    # ── Legacy direct Anthropic path (db is None — backward compat) ──────────
     resp = call_anthropic_with_retry(
         client,
         model="claude-sonnet-4-5",
-        max_tokens=600 if force_simple else 2000,
+        max_tokens=600 if force_simple else 4000,
         system=system,
-        messages=[{"role": "user", "content": user_content}],
+        messages=[{"role": "user", "content": user_text}],
     )
     return strip_code_from_output(resp.content[0].text.strip())
 
@@ -2768,8 +2795,10 @@ Reply with ONLY the response text. No JSON, no markdown blocks, no section heade
 def translate_draft(text, source_lang, target_lang, anthropic_key, db=None):
     """Translate a draft response from one language to another.
 
-    When ``db`` is provided, attempts LLMRouter (draft_response_agent) first.
-    Falls back to the legacy direct Anthropic Haiku path on failure.
+    Routing:
+    - ``db`` provided → LLMRouter (draft_response_agent) only.  No silent fallback;
+      raises RuntimeError on failure so the caller sees the error.
+    - ``db`` is None → legacy direct Anthropic Haiku path (backward compat).
     The ONLY thing that changes is the language of the surrounding text.
     """
     if not text or not text.strip():
@@ -2795,7 +2824,7 @@ RULES:
 
 Reply with ONLY the translated text. No explanations."""
 
-    # ── LLMRouter path ────────────────────────────────────────────────────────
+    # ── Router path (db provided) — no silent fallback ───────────────────────
     if db is not None:
         try:
             from ai.main_llm import complete_main_llm
@@ -2805,21 +2834,21 @@ Reply with ONLY the translated text. No explanations."""
                 purpose=f"translate_{source_lang}_to_{target_lang}",
                 max_tokens=2500,
             )
-            if _tr_result["ok"]:
-                logger.info(
-                    f"translate_draft: LLMRouter OK "
-                    f"provider={_tr_result['provider']} model={_tr_result['model']}"
-                )
-                return strip_code_from_output(_tr_result["text"].strip())
-            else:
-                logger.warning(
-                    f"translate_draft: LLMRouter failed "
-                    f"({_tr_result['error']}), falling back to legacy path"
-                )
         except Exception as _tr_exc:
-            logger.warning(f"translate_draft: router exception {_tr_exc}, using legacy path")
+            raise RuntimeError(
+                f"Translation failed (LLM provider error): {type(_tr_exc).__name__}"
+            ) from _tr_exc
+        if not _tr_result["ok"]:
+            raise RuntimeError(
+                f"Translation failed (LLM provider error): {_tr_result['error']}"
+            )
+        logger.info(
+            f"translate_draft: LLMRouter OK "
+            f"provider={_tr_result['provider']} model={_tr_result['model']}"
+        )
+        return strip_code_from_output(_tr_result["text"].strip())
 
-    # ── Legacy direct Anthropic path (Haiku — fast + cheap) ──────────────────
+    # ── Legacy direct Anthropic path (db is None — backward compat) ──────────
     resp = call_anthropic_with_retry(
         client,
         model="claude-haiku-4-5-20251001",
@@ -5630,8 +5659,12 @@ def generate_prd_analysis(compiled_thread, anthropic_key, lang, existing_analysi
     If a PO draft response is provided (edited via AI assistant), use it as the PRIMARY source of truth.
     The AI also analyses template code to propose solutions based on existing patterns in the same template.
 
-    When ``db`` is provided and no screenshot blocks are present, attempts to use
-    LLMRouter (prd_agent).  Falls back to the legacy direct Anthropic path on failure.
+    Routing:
+    - Screenshot / vision content → legacy direct Anthropic always (router does not
+      support multimodal content yet).
+    - ``db`` provided, text-only → LLMRouter (prd_agent) only.  No silent fallback;
+      raises RuntimeError on failure so the Flask route shows a clear flash error.
+    - ``db`` is None → legacy direct Anthropic (backward compat for old call sites).
     """
     client = Anthropic(api_key=anthropic_key)
 
@@ -5842,14 +5875,20 @@ IMPORTANT — the new_behaviour_subsections array:
     if ticket_id:
         screenshot_blocks = load_screenshots_for_ai(ticket_id)
 
+    # ── Vision path: LLMRouter does not support multimodal content. ──────────
+    # Screenshot-bearing requests always use the legacy direct Anthropic path.
     if screenshot_blocks:
         user_content = screenshot_blocks + [{"type": "text", "text": user_text}]
-    else:
-        user_content = user_text
-
-    # ── LLMRouter path (text-only; screenshot calls stay on legacy path) ──────
-    _prd_text = None
-    if db is not None and not screenshot_blocks:
+        resp = call_anthropic_with_retry(
+            client,
+            model="claude-sonnet-4-5",
+            max_tokens=10000,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        _prd_text = resp.content[0].text
+    elif db is not None:
+        # ── Router path (text-only, db provided) — no silent fallback ────────
         try:
             from ai.main_llm import complete_main_llm
             _prd_result = complete_main_llm(
@@ -5858,28 +5897,27 @@ IMPORTANT — the new_behaviour_subsections array:
                 purpose="prd_analysis",
                 max_tokens=10000,
             )
-            if _prd_result["ok"]:
-                logger.info(
-                    f"generate_prd_analysis: LLMRouter OK "
-                    f"provider={_prd_result['provider']} model={_prd_result['model']}"
-                )
-                _prd_text = _prd_result["text"]
-            else:
-                logger.warning(
-                    f"generate_prd_analysis: LLMRouter failed "
-                    f"({_prd_result['error']}), falling back to legacy path"
-                )
         except Exception as _prd_exc:
-            logger.warning(f"generate_prd_analysis: router exception {_prd_exc}, using legacy path")
-
-    if _prd_text is None:
-        # ── Legacy direct Anthropic path ──────────────────────────────────────
+            raise RuntimeError(
+                f"PRD analysis failed (LLM provider error): {type(_prd_exc).__name__}"
+            ) from _prd_exc
+        if not _prd_result["ok"]:
+            raise RuntimeError(
+                f"PRD analysis failed (LLM provider error): {_prd_result['error']}"
+            )
+        logger.info(
+            f"generate_prd_analysis: LLMRouter OK "
+            f"provider={_prd_result['provider']} model={_prd_result['model']}"
+        )
+        _prd_text = _prd_result["text"]
+    else:
+        # ── Legacy direct Anthropic path (db is None — backward compat) ──────
         resp = call_anthropic_with_retry(
             client,
             model="claude-sonnet-4-5",
             max_tokens=10000,
             system=system,
-            messages=[{"role": "user", "content": user_content}],
+            messages=[{"role": "user", "content": user_text}],
         )
         _prd_text = resp.content[0].text
 

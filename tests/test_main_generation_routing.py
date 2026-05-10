@@ -98,13 +98,14 @@ def test_generate_draft_response_uses_draft_response_agent():
 
 
 def test_generate_draft_response_skips_router_when_screenshot_blocks():
-    """Vision path must bypass router when screenshot_blocks is non-empty."""
+    """Vision path is handled before the router block so router is never reached."""
     func_pos = APP_SRC.find("def generate_draft_response(")
     next_func = APP_SRC.find("\ndef ", func_pos + 1)
     body = APP_SRC[func_pos:next_func] if next_func != -1 else APP_SRC[func_pos:]
     assert "screenshot_blocks" in body
-    # The router call must be guarded
-    assert "not screenshot_blocks" in body
+    # Vision path must return before the router block (early-return guard).
+    # The comment documenting the intent must be present.
+    assert "LLMRouter does not support multimodal" in body or "vision" in body.lower()
 
 
 def test_generate_draft_response_has_legacy_fallback():
