@@ -239,4 +239,33 @@ The script **never** calls Freshdesk or LLM APIs directly.
 
 ---
 
-*See also: [`docs/TEAM_DEMO_GUIDE.md`](TEAM_DEMO_GUIDE.md) · [`docs/PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md)*
+## Optional: Browser smoke tests (Playwright)
+
+For a deeper browser-level check that validates the real UI renders, use the optional Playwright tests:
+
+```bash
+# Install once
+pip install playwright pytest-playwright
+playwright install chromium
+
+# Run against local app
+APP_BASE_URL=http://localhost:5000 python3 -m pytest tests/browser -q
+
+# Or use the helper script
+bash scripts/run_browser_smoke.sh
+```
+
+These tests check:
+- Inbox, Settings, and Agents pages load in a real browser
+- System Readiness and Security Readiness cards are visible
+- `/api/system-readiness` and `/api/security-readiness` return valid JSON
+- No 500 errors appear
+- No mutating endpoints are called
+
+The browser tests skip cleanly if Playwright is not installed. The normal `pytest -q` suite is not affected.
+
+See [`docs/PLAYWRIGHT_SMOKE_TESTS.md`](PLAYWRIGHT_SMOKE_TESTS.md) for full documentation.
+
+---
+
+*See also: [`docs/TEAM_DEMO_GUIDE.md`](TEAM_DEMO_GUIDE.md) · [`docs/PRODUCTION_CHECKLIST.md`](PRODUCTION_CHECKLIST.md) · [`docs/PLAYWRIGHT_SMOKE_TESTS.md`](PLAYWRIGHT_SMOKE_TESTS.md)*
