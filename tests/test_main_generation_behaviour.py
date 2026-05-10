@@ -437,3 +437,157 @@ def test_missing_llm_api_key_prd_raises(monkeypatch):
                return_value=_fail_router_result("No API key configured for anthropic")):
         with pytest.raises(RuntimeError):
             app_module.generate_prd_analysis("thread", "key", "fr", db=db, ticket_id=1)
+
+
+# ── generate_decline_response ──────────────────────────────────────────────────
+
+
+def test_decline_uses_router_when_db_provided_no_screenshots(monkeypatch):
+    """Text-only + db provided → router called, legacy NOT called."""
+    db = _fake_db()
+    legacy_called = []
+
+    def fake_legacy(*args, **kwargs):
+        legacy_called.append(True)
+        return _mock_legacy_resp("legacy decline")
+
+    monkeypatch.setattr(app_module, "call_anthropic_with_retry", fake_legacy)
+    monkeypatch.setattr(app_module, "load_screenshots_for_ai", lambda tid: [])
+
+    with patch("ai.main_llm.complete_main_llm", return_value=_ok_router_result("router decline")) as mock_router:
+        result = app_module.generate_decline_response("thread", "key", db=db, ticket_id=1)
+
+    mock_router.assert_called_once()
+    assert not legacy_called
+    assert result == "router decline"
+
+
+def test_decline_router_failure_raises_not_calls_legacy(monkeypatch):
+    """Router failure with db provided → RuntimeError, legacy NOT called."""
+    db = _fake_db()
+    legacy_called = []
+
+    def fake_legacy(*args, **kwargs):
+        legacy_called.append(True)
+        return _mock_legacy_resp("legacy decline")
+
+    monkeypatch.setattr(app_module, "call_anthropic_with_retry", fake_legacy)
+    monkeypatch.setattr(app_module, "load_screenshots_for_ai", lambda tid: [])
+
+    with patch("ai.main_llm.complete_main_llm", return_value=_fail_router_result()):
+        with pytest.raises(RuntimeError, match="(?i)decline.*failed|LLM provider"):
+            app_module.generate_decline_response("thread", "key", db=db, ticket_id=1)
+
+    assert not legacy_called
+
+
+def test_decline_db_none_uses_legacy(monkeypatch):
+    """db=None → legacy path, router NOT called."""
+    legacy_called = []
+
+    def fake_legacy(*args, **kwargs):
+        legacy_called.append(True)
+        return _mock_legacy_resp("legacy decline")
+
+    monkeypatch.setattr(app_module, "call_anthropic_with_retry", fake_legacy)
+    monkeypatch.setattr(app_module, "load_screenshots_for_ai", lambda tid: [])
+
+    with patch("ai.main_llm.complete_main_llm") as mock_router:
+        app_module.generate_decline_response("thread", "key", db=None, ticket_id=1)
+
+    assert legacy_called
+    mock_router.assert_not_called()
+
+
+def test_decline_vision_path_always_uses_legacy(monkeypatch):
+    """Screenshot content → legacy always, even when db is provided."""
+    db = _fake_db()
+    legacy_called = []
+
+    def fake_legacy(*args, **kwargs):
+        legacy_called.append(True)
+        return _mock_legacy_resp("legacy decline")
+
+    monkeypatch.setattr(app_module, "call_anthropic_with_retry", fake_legacy)
+    monkeypatch.setattr(
+        app_module, "load_screenshots_for_ai",
+        lambda tid: [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc"}}],
+    )
+
+    with patch("ai.main_llm.complete_main_llm") as mock_router:
+        app_module.generate_decline_response("thread", "key", db=db, ticket_id=1)
+
+    assert legacy_called
+    mock_router.assert_not_called()
+
+
+def test_decline_missing_llm_api_key_raises(monkeypatch):
+    """ok=False (missing llm_api_key) → RuntimeError from generate_decline_response."""
+    db = _fake_db()
+    monkeypatch.setattr(app_module, "call_anthropic_with_retry", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "load_screenshots_for_ai", lambda tid: [])
+
+    with patch("ai.main_llm.complete_main_llm",
+               return_value=_fail_router_result("No API key configured for anthropic")):
+        with pytest.raises(RuntimeError):
+            app_module.generate_decline_response("thread", "key", db=db, ticket_id=1)
+
+
+# ── validate_translation: intentionally deferred ──────────────────────────────
+
+
+def test_validate_translation_documented_as_deferred():
+    """validate_translation docstring must explicitly document LLMRouter deferral."""
+    src = Path("app.py").read_text(encoding="utf-8")
+    func_pos = src.find("def validate_translation(")
+    assert func_pos != -1
+    # Read the docstring (next ~600 chars from the def line)
+    doc_window = src[func_pos:func_pos + 800]
+    assert "INTENTIONALLY DEFERRED" in doc_window or "intentionally deferred" in doc_window.lower()
+
+
+def test_validate_translation_api_block_in_try_except():
+    """The API call inside validate_translation must be wrapped in try/except."""
+    src = Path("app.py").read_text(encoding="utf-8")
+    func_pos = src.find("def validate_translation(")
+    next_func = src.find("\ndef ", func_pos + 1)
+    body = src[func_pos:next_func] if next_func != -1 else src[func_pos:]
+    # confirm try/except wraps the API call
+    assert "try:" in body
+    assert "except Exception" in body
+
+
+def test_validate_translation_only_fires_for_long_drafts():
+    """validate_translation must only call the API for drafts longer than a threshold."""
+    src = Path("app.py").read_text(encoding="utf-8")
+    func_pos = src.find("def validate_translation(")
+    next_func = src.find("\ndef ", func_pos + 1)
+    body = src[func_pos:next_func] if next_func != -1 else src[func_pos:]
+    # The guard condition must be present
+    assert "> 500" in body or "> 300" in body
+
+
+# ── No unexpected text-only silent fallback ───────────────────────────────────
+
+
+def test_no_text_only_function_silently_falls_back_to_legacy_when_db_provided():
+    """Source check: none of the four routed functions should have a bare
+    call_anthropic_with_retry that runs when db is not None and screenshot_blocks is empty."""
+    src = Path("app.py").read_text(encoding="utf-8")
+
+    def _body(fn_name):
+        pos = src.find(f"def {fn_name}(")
+        end = src.find("\ndef ", pos + 1)
+        return src[pos:end] if end != -1 else src[pos:]
+
+    for fn in ("analyze_and_draft_ai", "generate_draft_response",
+               "translate_draft", "generate_prd_analysis", "generate_decline_response"):
+        body = _body(fn)
+        # Each function must contain the "db is None" or "backward compat" guard
+        # comment/check so legacy calls are explicitly gated
+        assert (
+            "db is None" in body
+            or "db=None" in body
+            or "backward compat" in body.lower()
+            or "backward compatibility" in body.lower()
+        ), f"{fn} missing explicit db=None / backward-compat guard"

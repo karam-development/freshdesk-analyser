@@ -2671,10 +2671,18 @@ Reply with ONLY the response text starting with "--- CLIENT RESPONSE ---". No JS
 
 
 def generate_decline_response(compiled_thread, anthropic_key, lang="fr", writing_style="customer_support",
-                              kb_context="", project_instructions="", analysis="", decline_reason="", code_context="", terminology_context="", ticket_id=None):
+                              kb_context="", project_instructions="", analysis="", decline_reason="", code_context="", terminology_context="", ticket_id=None, db=None):
     """Generate a professional decline response for a DECLINED ticket.
     Explains to the client why we cannot or will not action this request,
-    and provides an internal note summarising the decision."""
+    and provides an internal note summarising the decision.
+
+    Routing:
+    - Screenshot / vision content → legacy direct Anthropic always (router does not
+      support multimodal content yet).
+    - ``db`` provided, text-only → LLMRouter (draft_response_agent) only.  No silent
+      fallback; raises RuntimeError on failure so the caller sees the error.
+    - ``db`` is None → legacy direct Anthropic (backward compat for old call sites).
+    """
     client = Anthropic(api_key=anthropic_key)
     style = WRITING_STYLES.get(writing_style, WRITING_STYLES["customer_support"])
 
@@ -2777,17 +2785,50 @@ Reply with ONLY the response text. No JSON, no markdown blocks, no section heade
     if ticket_id:
         screenshot_blocks = load_screenshots_for_ai(ticket_id)
 
+    # ── Vision path: LLMRouter does not support multimodal content. ──────────
+    # Screenshot-bearing requests always use the legacy direct Anthropic path.
     if screenshot_blocks:
         user_content = screenshot_blocks + [{"type": "text", "text": user_text}]
-    else:
-        user_content = user_text
+        resp = call_anthropic_with_retry(
+            client,
+            model="claude-sonnet-4-5",
+            max_tokens=1500,
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
+        )
+        return strip_code_from_output(resp.content[0].text.strip())
 
+    # ── Router path (text-only, db provided) — no silent fallback ────────────
+    if db is not None:
+        try:
+            from ai.main_llm import complete_main_llm
+            _dcl_result = complete_main_llm(
+                db, "draft_response_agent", system,
+                [{"role": "user", "content": user_text}],
+                purpose="decline_response",
+                max_tokens=1500,
+            )
+        except Exception as _dcl_exc:
+            raise RuntimeError(
+                f"Decline response generation failed (LLM provider error): {type(_dcl_exc).__name__}"
+            ) from _dcl_exc
+        if not _dcl_result["ok"]:
+            raise RuntimeError(
+                f"Decline response generation failed (LLM provider error): {_dcl_result['error']}"
+            )
+        logger.info(
+            f"generate_decline_response: LLMRouter OK "
+            f"provider={_dcl_result['provider']} model={_dcl_result['model']}"
+        )
+        return strip_code_from_output(_dcl_result["text"].strip())
+
+    # ── Legacy direct Anthropic path (db is None — backward compat) ──────────
     resp = call_anthropic_with_retry(
         client,
         model="claude-sonnet-4-5",
         max_tokens=1500,
         system=system,
-        messages=[{"role": "user", "content": user_content}],
+        messages=[{"role": "user", "content": user_text}],
     )
     return strip_code_from_output(resp.content[0].text.strip())
 
@@ -2879,6 +2920,15 @@ def validate_translation(source_fr, translated_en, anthropic_key):
     Only calls the API for a reverse-translation spot-check if the draft is long.
 
     Returns the corrected EN translation (or the original if no issues found).
+
+    LLMRouter routing: INTENTIONALLY DEFERRED.
+    Rationale: this is secondary QA post-processing, not a primary generation path.
+    - The API call only fires for drafts >500 words (most skip it entirely).
+    - The entire API block is wrapped in try/except; failure is logged and swallowed.
+    - The function returns the already-translated text either way — it only applies
+      targeted fixes for known legal-term drift.
+    - Routing this through LLMRouter would add no user-visible benefit and would
+      complicate error propagation for a best-effort validation step.
     """
     if not source_fr or not translated_en:
         return translated_en
@@ -5222,7 +5272,7 @@ def generate_decline_drafts(ticket_id):
         # Generate FR decline response (Sonnet — full reasoning)
         result_fr = generate_decline_response(compiled, anthropic_key, "fr", writing_style, enhanced_kb, project_instr,
                                               ticket["analysis"] or "", ticket["po_decision_reason"] or "", effective_code_ctx,
-                                              terminology_context=term_context, ticket_id=ticket_id)
+                                              terminology_context=term_context, ticket_id=ticket_id, db=db)
 
         # Translate FR → EN (via LLMRouter when llm_api_key set, else legacy)
         result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
