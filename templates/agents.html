@@ -292,6 +292,48 @@
         </table>
     </div>
 </div>
+
+<!-- AGENT MODEL CONFIGURATION (read-only) -->
+<div class="card" style="margin-top: 24px;">
+    <h3 style="font-size:0.95em;font-weight:700;margin-bottom:4px;">Agent Model Configuration <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
+    <p style="color:var(--text-muted);font-size:0.82em;margin:0 0 14px 0;">
+        Per-agent provider, model, and token limits. Edit via
+        <code>POST /api/agents/model-config/&lt;agent_name&gt;</code> or the API.
+    </p>
+    {% if model_configs %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Provider</th>
+                    <th>Model</th>
+                    <th>Temp</th>
+                    <th>Max Tokens</th>
+                    <th>Enabled</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for cfg in model_configs %}
+                <tr>
+                    <td style="font-size:0.85em;font-weight:600;">{{ cfg.agent_name }}</td>
+                    <td style="font-size:0.82em;">{{ cfg.provider or '—' }}</td>
+                    <td style="font-size:0.82em;font-family:monospace;">{{ cfg.model or '—' }}</td>
+                    <td style="font-size:0.82em;">{{ cfg.temperature if cfg.temperature is not none else '—' }}</td>
+                    <td style="font-size:0.82em;">{{ cfg.max_tokens or '—' }}</td>
+                    <td style="font-size:0.82em;">
+                        {% if cfg.enabled %}<span style="color:var(--success,#38a169);font-weight:600;">✓</span>
+                        {% else %}<span style="color:var(--text-muted);">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No agent model configurations found. They are seeded automatically on first startup.</p>
+    {% endif %}
+</div>
 {% endblock %}
 
 {% block scripts %}

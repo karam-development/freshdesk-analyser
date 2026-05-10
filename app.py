@@ -6733,6 +6733,43 @@ def settings():
         statuses = request.form.getlist("freshdesk_statuses")
         set_setting("freshdesk_statuses", ",".join(statuses) if statuses else "2,3,4,20", db=db)
 
+        # Semantic RAG settings (never call embeddings here — just persist values)
+        semantic_rag_enabled = request.form.get("semantic_rag_enabled", "").strip().lower()
+        if semantic_rag_enabled in ("true", "false", "1", "0", "yes", "no"):
+            set_setting("semantic_rag_enabled", "true" if semantic_rag_enabled in ("true", "1", "yes") else "false", db=db)
+        else:
+            set_setting("semantic_rag_enabled", "false", db=db)
+
+        semantic_rag_provider = request.form.get("semantic_rag_provider", "").strip()
+        if semantic_rag_provider:
+            set_setting("semantic_rag_provider", semantic_rag_provider, db=db)
+
+        semantic_embedding_model = request.form.get("semantic_embedding_model", "").strip()
+        if semantic_embedding_model:
+            set_setting("semantic_embedding_model", semantic_embedding_model, db=db)
+
+        _top_k_raw = request.form.get("semantic_rag_top_k", "").strip()
+        try:
+            _top_k = int(_top_k_raw)
+            if _top_k < 1:
+                raise ValueError("top_k must be positive")
+            set_setting("semantic_rag_top_k", str(_top_k), db=db)
+        except (ValueError, TypeError):
+            if _top_k_raw:
+                flash("Invalid value for Semantic RAG Top K — must be a positive integer. Reset to default (5).", "warning")
+            set_setting("semantic_rag_top_k", "5", db=db)
+
+        _min_score_raw = request.form.get("semantic_rag_min_score", "").strip()
+        try:
+            _min_score = float(_min_score_raw)
+            if not (0.0 <= _min_score <= 1.0):
+                raise ValueError("min_score must be between 0 and 1")
+            set_setting("semantic_rag_min_score", str(_min_score), db=db)
+        except (ValueError, TypeError):
+            if _min_score_raw:
+                flash("Invalid value for Semantic RAG Min Score — must be between 0 and 1. Reset to default (0.65).", "warning")
+            set_setting("semantic_rag_min_score", "0.65", db=db)
+
         flash("Settings saved.", "success")
         return redirect(url_for("settings"))
 
@@ -6742,8 +6779,30 @@ def settings():
                 "freshdesk_statuses", "writing_style", "template_code_path",
                 "jira_domain", "jira_email", "jira_api_token", "jira_project",
                 "llm_provider", "llm_api_key", "llm_base_url",
-                "llm_fast_model", "llm_main_model"]:
+                "llm_fast_model", "llm_main_model",
+                "semantic_rag_enabled", "semantic_rag_provider",
+                "semantic_embedding_model", "semantic_rag_top_k", "semantic_rag_min_score"]:
         current[key] = get_setting(key, db=db)
+
+    # Semantic RAG defaults for display
+    if not current["semantic_rag_enabled"]:
+        current["semantic_rag_enabled"] = "false"
+    if not current["semantic_rag_provider"]:
+        current["semantic_rag_provider"] = "openai"
+    if not current["semantic_embedding_model"]:
+        current["semantic_embedding_model"] = "text-embedding-3-small"
+    if not current["semantic_rag_top_k"]:
+        current["semantic_rag_top_k"] = "5"
+    if not current["semantic_rag_min_score"]:
+        current["semantic_rag_min_score"] = "0.65"
+
+    # Embedding cache status (read-only, safe — never generates embeddings)
+    kb_cache_status = {"count": 0, "available": False}
+    try:
+        row = db.execute("SELECT COUNT(*) FROM kb_embedding_cache").fetchone()
+        kb_cache_status = {"count": row[0] if row else 0, "available": True}
+    except Exception:
+        kb_cache_status = {"count": 0, "available": False}
 
     # Set defaults
     if not current["freshdesk_domain"]:
@@ -6827,7 +6886,8 @@ def settings():
                            notion_token=notion_token,
                            notion_page_id=notion_page_id,
                            system_readiness=system_readiness,
-                           security_readiness=security_readiness)
+                           security_readiness=security_readiness,
+                           kb_cache_status=kb_cache_status)
 
 
 @app.route("/knowledge-base/add", methods=["POST"])
