@@ -8,6 +8,85 @@
         margin-bottom: 32px;
     }
 
+    /* ── System Readiness Card ── */
+    .readiness-card {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px 24px;
+        margin-bottom: 28px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .readiness-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 14px;
+    }
+    .readiness-title {
+        font-size: 0.95em;
+        font-weight: 600;
+        color: var(--text);
+        flex: 1;
+    }
+    .readiness-score {
+        font-size: 0.85em;
+        color: var(--text-muted);
+    }
+    .readiness-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 20px;
+        font-size: 0.75em;
+        font-weight: 600;
+    }
+    .readiness-badge-ready    { background: var(--success-bg); color: #065f46; }
+    .readiness-badge-degraded { background: var(--warning-bg); color: #92400e; }
+    .readiness-badge-needs_configuration { background: var(--danger-bg); color: #991b1b; }
+    .readiness-badge-unknown  { background: #f3f4f6; color: #4b5563; }
+    .readiness-checks {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .readiness-check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.82em;
+        color: var(--text);
+    }
+    .readiness-check-icon {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7em;
+        font-weight: 700;
+        flex-shrink: 0;
+    }
+    .readiness-check-icon-pass    { background: var(--success-bg); color: var(--success); }
+    .readiness-check-icon-warning { background: var(--warning-bg); color: var(--warning); }
+    .readiness-check-icon-fail    { background: var(--danger-bg);  color: var(--danger);  }
+    .readiness-check-icon-unknown { background: #f3f4f6; color: #6b7280; }
+    .readiness-check-msg { color: var(--text-muted); font-size: 0.9em; }
+    .readiness-guidance {
+        margin-top: 12px;
+        padding: 10px 14px;
+        background: var(--warning-bg);
+        border: 1px solid #fcd34d;
+        border-radius: 6px;
+        font-size: 0.82em;
+        color: #78350f;
+    }
+    .readiness-guidance ul {
+        margin: 6px 0 0 16px;
+        padding: 0;
+    }
+    .readiness-guidance li { margin-bottom: 3px; }
+
     /* ── Settings Layout ── */
     .settings-grid {
         display: grid;
@@ -566,6 +645,72 @@
     <h1>Settings</h1>
     <p style="color: var(--text-muted); font-size: 0.95em; margin-top: 4px;">Configure Freshdesk, AI, and reference materials</p>
 </div>
+
+<!-- SYSTEM READINESS CARD -->
+{% if system_readiness %}
+{% set sr = system_readiness %}
+<div class="readiness-card">
+    <div class="readiness-header">
+        <span class="readiness-title">System Readiness</span>
+        <span class="readiness-score">Score: {{ sr.score }}/100</span>
+        <span class="readiness-badge readiness-badge-{{ sr.status }}">
+            {% if sr.status == "ready" %}Ready
+            {% elif sr.status == "needs_configuration" %}Needs configuration
+            {% elif sr.status == "degraded" %}Degraded
+            {% else %}Unknown{% endif %}
+        </span>
+    </div>
+
+    <div class="readiness-checks">
+        {% for check in sr.checks %}
+        {% if check.severity in ("critical", "warning") or check.status in ("fail", "warning") %}
+        <div class="readiness-check-row">
+            <span class="readiness-check-icon readiness-check-icon-{{ check.status }}">
+                {% if check.status == "pass" %}✓
+                {% elif check.status == "fail" %}✗
+                {% elif check.status == "warning" %}!
+                {% else %}?{% endif %}
+            </span>
+            <span>{{ check.title }}</span>
+            {% if check.status != "pass" %}
+            <span class="readiness-check-msg">— {{ check.message }}</span>
+            {% endif %}
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if sr.summary.pass_count > 0 %}
+        <div class="readiness-check-row" style="color: var(--text-muted);">
+            <span class="readiness-check-icon readiness-check-icon-pass">✓</span>
+            <span>{{ sr.summary.pass_count }} check(s) passing</span>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if sr.status in ("needs_configuration", "degraded") %}
+    <div class="readiness-guidance">
+        <strong>Action needed:</strong>
+        <ul>
+            {% if sr.checks | selectattr("code", "equalto", "llm_provider_set") | selectattr("status", "equalto", "fail") | list %}
+            <li>Configure the LLM provider in AI Provider Configuration below.</li>
+            {% endif %}
+            {% if sr.checks | selectattr("code", "equalto", "llm_api_key_set") | selectattr("status", "equalto", "fail") | list %}
+            <li>Add the LLM API key in AI Provider Configuration below.</li>
+            {% endif %}
+            {% if sr.checks | selectattr("code", "equalto", "freshdesk_domain_set") | selectattr("status", "equalto", "fail") | list %}
+            <li>Set the Freshdesk domain in Freshdesk Configuration below.</li>
+            {% endif %}
+            {% if sr.checks | selectattr("code", "equalto", "freshdesk_api_key_set") | selectattr("status", "equalto", "fail") | list %}
+            <li>Add the Freshdesk API key in Freshdesk Configuration below.</li>
+            {% endif %}
+            {% if sr.checks | selectattr("code", "equalto", "kb_entries_available") | selectattr("status", "equalto", "warning") | list %}
+            <li>Add Knowledge Base entries to improve AI response quality.</li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+<!-- END SYSTEM READINESS CARD -->
 
 <!-- SETTINGS FORM -->
 <form method="POST" action="{{ url_for('settings') }}">

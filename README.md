@@ -8,6 +8,17 @@ analyses them with an LLM, generates draft replies, and tracks BSO metrics.
 
 ---
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Team Demo Guide](docs/TEAM_DEMO_GUIDE.md) | How to run and demo the app for the team |
+| [Production Checklist](docs/PRODUCTION_CHECKLIST.md) | Pre-deployment and operational requirements |
+
+> **Safety rule:** AI drafts are suggestions only — no auto-send behaviour exists. Human review is required before any reply is sent.
+
+---
+
 ## Features
 
 - Ticket inbox with AI-powered analysis and draft reply generation
