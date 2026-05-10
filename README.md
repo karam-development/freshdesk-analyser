@@ -16,6 +16,7 @@ analyses them with an LLM, generates draft replies, and tracks BSO metrics.
 | [Production Checklist](docs/PRODUCTION_CHECKLIST.md) | Pre-deployment and operational requirements |
 | [Live Demo Smoke Test](docs/LIVE_DEMO_SMOKE_TEST.md) | Manual and automated pre-demo checks |
 | [Playwright Smoke Tests](docs/PLAYWRIGHT_SMOKE_TESTS.md) | Optional browser-level UI smoke tests |
+| [Semantic KB Retrieval Plan](docs/SEMANTIC_KB_RETRIEVAL_PLAN.md) | KB chunking foundation and future embedding roadmap |
 
 > **Safety rule:** AI drafts are suggestions only — no auto-send behaviour exists. Human review is required before any reply is sent.
 
