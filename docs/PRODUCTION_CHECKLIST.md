@@ -113,7 +113,7 @@ The following items are intentionally not in scope for this release:
 
 | Item | Rationale |
 |------|-----------|
-| `validate_translation` LLMRouter routing | Secondary QA path; deferred to a future PR |
+| Vision/screenshot LLM routing | Multimodal paths always use legacy Anthropic client (LLMRouter limitation) |
 | Semantic RAG / embeddings | Not started; KB retrieval uses keyword/heuristic matching |
 | Multi-provider fallback | Silent fallback removed; explicit failure on provider error |
 | Real-time Freshdesk webhooks | Polling only; webhooks deferred |

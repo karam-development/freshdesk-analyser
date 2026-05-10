@@ -110,7 +110,7 @@ LLMRouter is the provider-agnostic routing layer:
 ## Known Limitations
 
 - Vision analysis (screenshots) requires an Anthropic key regardless of the configured LLM provider
-- `validate_translation` is not routed through LLMRouter (intentionally deferred — secondary QA path)
+- Vision/screenshot analysis requires an Anthropic key regardless of the configured LLM provider (multimodal requirement)
 - No real-time Freshdesk webhook support; ticket fetch is triggered manually or by the scheduled run
 - Safe-to-Send scores are heuristic-based (no LLM call in the review itself)
 - KB snapshot diffs require at least two analysis runs on the same ticket
