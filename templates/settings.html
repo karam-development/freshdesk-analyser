@@ -832,14 +832,56 @@
             </div>
         </div>
 
-        <!-- AI SETTINGS -->
+        <!-- AI PROVIDER CONFIGURATION (LLMRouter) -->
         <div class="settings-section">
-            <h3>Claude AI Configuration</h3>
+            <h3>AI Provider Configuration</h3>
+            <p style="color: var(--text-muted); font-size: 0.85em; margin: -12px 0 16px 0; line-height: 1.5;">
+                Used by LLMRouter for draft generation, analysis, translation validation, and semantic RAG embeddings.
+            </p>
 
             <div class="form-group">
-                <label>Anthropic API Key</label>
+                <label>LLM Provider</label>
+                <select name="llm_provider">
+                    <option value="anthropic" {% if settings.llm_provider == 'anthropic' or not settings.llm_provider %}selected{% endif %}>Anthropic (Claude)</option>
+                    <option value="openai" {% if settings.llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                </select>
+                <div class="hint">Provider used for all routed text generation tasks (drafts, analysis, validation, embeddings).</div>
+            </div>
+
+            <div class="form-group">
+                <label>LLM API Key</label>
+                <input type="password" name="llm_api_key" value="" placeholder="{% if settings.llm_api_key %}Leave blank to keep existing key{% else %}Enter your API key{% endif %}" autocomplete="new-password">
+                <div class="hint">
+                    {% if settings.llm_api_key %}
+                    <span style="color: #16a34a;">&#10003; Key is set.</span>
+                    Leave blank to keep the existing key, or enter a new key to replace it.
+                    {% else %}
+                    No key configured. Enter the API key for the selected provider.
+                    {% if settings.anthropic_api_key %}
+                    <br><strong>Tip:</strong> You have a Legacy Anthropic API Key set below — enter it here as well to configure the LLM router.
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Base URL <span style="font-weight: 400; color: var(--text-muted);">(optional)</span></label>
+                <input type="text" name="llm_base_url" value="{{ settings.llm_base_url or '' }}" placeholder="Leave blank for Anthropic or standard OpenAI">
+                <div class="hint">Override the API base URL. Required only for OpenAI-compatible third-party providers. Leave blank for standard Anthropic or OpenAI endpoints.</div>
+            </div>
+        </div>
+
+        <!-- LEGACY AI SETTINGS -->
+        <div class="settings-section">
+            <h3>Legacy Anthropic Configuration</h3>
+            <p style="color: var(--text-muted); font-size: 0.85em; margin: -12px 0 16px 0; line-height: 1.5;">
+                Used only for legacy and vision/screenshot fallback paths. Main text generation uses <strong>AI Provider Configuration</strong> above.
+            </p>
+
+            <div class="form-group">
+                <label>Legacy Anthropic API Key</label>
                 <input type="password" name="anthropic_api_key" value="{{ settings.anthropic_api_key }}" placeholder="sk-ant-..." id="ai-key">
-                <div class="hint">Get it from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a></div>
+                <div class="hint">Get it from <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>. Required for vision/screenshot analysis only.</div>
                 <button type="button" class="btn btn-secondary btn-sm test-btn" onclick="testAnthropic()">Test Connection</button>
                 <div class="test-result" id="ai-result"></div>
             </div>
