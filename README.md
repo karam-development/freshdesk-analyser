@@ -160,17 +160,34 @@ configured in the app's Settings page.
 
 ---
 
+## CI
+
+GitHub Actions runs automatically on every pull request and push to `main`:
+
+1. **Compile check** — `python3 -m py_compile app.py agents.py …`
+2. **pytest** — full test suite (`pytest -q`); browser smoke tests skip if Playwright is not installed
+3. **Smoke check dry-run** — `python3 scripts/smoke_check.py --dry-run --json`
+
+No secrets or API keys are required for CI. Freshdesk and LLM APIs are never called.
+Browser smoke tests (Playwright) are optional — see [`docs/PLAYWRIGHT_SMOKE_TESTS.md`](docs/PLAYWRIGHT_SMOKE_TESTS.md).
+
+---
+
 ## Running tests
 
 ```bash
 # Compile check (must produce no output)
-python3 -m py_compile app.py agents.py
+python3 -m py_compile app.py agents.py ai/security_readiness.py \
+  ai/llm/router.py ai/main_llm.py scripts/smoke_check.py
 
 # Unit tests
 pytest -q
+
+# Smoke check dry-run (no app required)
+python3 scripts/smoke_check.py --dry-run --json
 ```
 
-All 32 tests must pass before pushing to a feature branch.
+All tests must pass before pushing to a feature branch.
 
 ---
 

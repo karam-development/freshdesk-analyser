@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    name: Compile, test, and smoke-check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile check
+        run: |
+          python3 -m py_compile app.py agents.py ai/security_readiness.py \
+            ai/llm/router.py ai/main_llm.py scripts/smoke_check.py
+
+      - name: Run tests
+        run: |
+          pytest -q
+        env:
+          # No secrets required — tests mock external calls or skip gracefully.
+          # Browser tests skip automatically when Playwright is not installed.
+          PYTHONDONTWRITEBYTECODE: "1"
+
+      - name: Smoke check dry-run
+        # Exit code 2 means "all checks listed / skipped" in dry-run mode — that is correct.
+        # Exit code 1 would mean a check failed, which should not happen in dry-run.
+        run: |
+          python3 scripts/smoke_check.py --dry-run --json
+          exit_code=$?
+          if [ $exit_code -eq 2 ]; then
+            echo "Smoke check dry-run: all checks listed (exit 2 is expected for --dry-run)"
+            exit 0
+          fi
+          exit $exit_code
