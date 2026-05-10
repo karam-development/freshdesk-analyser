@@ -301,3 +301,113 @@ Fields: `id, ticket_id, agent_name, flow, status, input_summary, output_summary,
 Status values: `pending`, `running`, `completed`, `failed`, `skipped`
 
 Flows: `analysis`, `draft`, `learning`, `prd`, `notification`, `batch`, `reporting`, `reply_scan`
+
+---
+
+## Previously Wired Agents (wired_active)
+
+These 8 agents were running before this PR. Documented here for completeness.
+
+### A. `main_analysis_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Core ticket analysis: classification, risk level, PM decision, summary, RICE pre-fill, backlog description. Entry point of the analysis pipeline. |
+| **Trigger** | Auto: `/run` background job and `/ticket/<id>/prepare-analysis` route. |
+| **Input** | Compiled ticket thread, KB brief, code brief, research brief, classification brief, feasibility brief, Jira context, PM lessons. |
+| **Output** | Structured JSON: `{classification, confidence, risk_level, summary, analysis, pm_decision, needs_development, ...}` |
+| **Output stored** | `analyses` table + `tickets` table fields. `agent_logs` for API cost. |
+| **Output displayed** | Ticket detail page: AI Analysis card, PM Decision card, PM/PO Summary card. |
+| **Downstream consumer** | draft_response_agent, prd_agent, qa_agent, notification_agent (preview). |
+| **Runtime status** | `wired_active` |
+| **Call site** | `run_analysis_job()` / `prepare_analysis()` route |
+
+### B. `kb_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Reads knowledge base entries, extracts relevant KB evidence, validates accounting feasibility for the ticket. |
+| **Trigger** | Auto: parallel prep step inside `run_preparation_agents_parallel()`. |
+| **Input** | Ticket subject, compiled summary, KB entries (fetched from DB). |
+| **Output** | Plain-language KB brief (string): relevant rules, exceptions, evidence references. |
+| **Output stored** | `agent_logs` (cost/perf). Brief used in-memory for enhanced_kb context. |
+| **Output displayed** | Ticket detail → Relevant KB Evidence card, KB Evidence Quality card. |
+| **Downstream consumer** | main_analysis_agent, draft_response_agent (via enhanced_kb). |
+| **Runtime status** | `wired_active` |
+| **Call site** | `AgentOrchestrator.run_preparation_agents_parallel()` |
+
+### C. `code_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Analyzes template code structure, finds reference patterns, assesses technical feasibility. Output is plain-language only — no raw code. |
+| **Trigger** | Auto: parallel prep step inside `run_preparation_agents_parallel()`. Skipped with reason if no code context found. |
+| **Input** | Ticket subject, summary, template code snippets (fetched from KB/files). |
+| **Output** | Plain-language code brief (string): patterns, feasibility, implementation hints. |
+| **Output stored** | `agent_logs` (cost/perf). Brief used in-memory. If skipped: `agent_runs` `status=skipped`. |
+| **Output displayed** | Ticket detail → Evidence & Diagnostics (collapsed). |
+| **Downstream consumer** | main_analysis_agent, feasibility_agent, draft_response_agent. |
+| **Runtime status** | `wired_active` |
+| **Call site** | `AgentOrchestrator.run_preparation_agents_parallel()` |
+
+### D. `research_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Searches past tickets for similar resolved issues. Surfaces precedents and PM lessons. |
+| **Trigger** | Auto: parallel prep step inside `run_preparation_agents_parallel()`. |
+| **Input** | Ticket subject, summary, past ticket DB. |
+| **Output** | Plain-language research brief (string): precedents, similar decisions, lesson signals. |
+| **Output stored** | `agent_logs`. Brief used in-memory. |
+| **Output displayed** | Ticket detail → Relevant KB Evidence card (precedent section). |
+| **Downstream consumer** | main_analysis_agent, draft_response_agent. |
+| **Runtime status** | `wired_active` |
+| **Call site** | `AgentOrchestrator.run_preparation_agents_parallel()` |
+
+### E. `draft_response_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Generates FR and EN draft responses using all agent briefs, KB evidence, PM constraints, and structured lessons. |
+| **Trigger** | Auto: `/ticket/<id>/generate-drafts` route (triggered after PO approve/decline). |
+| **Input** | Compiled thread, enhanced_kb (all briefs), PM decision, safe-to-send QA result, lessons. |
+| **Output** | FR draft, EN draft, internal note, backlog description. |
+| **Output stored** | `tickets` table: `draft_response`, `draft_response_en`. `agent_logs`. |
+| **Output displayed** | Ticket detail → Draft Response section, What Support Should Send panel. |
+| **Downstream consumer** | qa_agent, safe_to_send_agent, learning_agent. |
+| **Runtime status** | `wired_active` |
+| **Call site** | `generate_drafts()` route |
+
+### F. `qa_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Reviews draft for quality, tone, completeness, PM-constraint compliance. Flags issues. May trigger one regeneration. |
+| **Trigger** | Auto: after draft_response_agent, inside `run_qa_with_retry()`. |
+| **Input** | Draft response, compiled thread, PM decision, KB briefs. |
+| **Output** | QA verdict + flagged issues. If failed: regeneration triggered. |
+| **Output stored** | `agent_logs`. QA result influences draft stored in `tickets`. |
+| **Output displayed** | Ticket detail → Safe to Send Review card, PM Guard Review card. |
+| **Downstream consumer** | safe_to_send_agent (uses QA output). |
+| **Runtime status** | `wired_active` |
+| **Call site** | `AgentOrchestrator.run_qa_with_retry()` |
+
+### G. `learning_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Extracts reusable lessons from PO edits and Freshdesk replies. Stores them as structured PM lessons for future drafts. |
+| **Trigger** | Auto: after PO approval/edit saves (post-update hook in `update_ticket()` and `po_decision()` routes). |
+| **Input** | PO-edited draft, original draft, PM decision, conversation context. |
+| **Output** | Extracted lessons (list of structured text). |
+| **Output stored** | `agent_lessons` table; `pm_structured_lessons` table. `agent_logs`. |
+| **Output displayed** | Agents page → Lessons Learned section. Ticket detail → Structured PM Lessons card. |
+| **Downstream consumer** | research_agent (lessons feed into future context), draft_response_agent. |
+| **Runtime status** | `wired_active` |
+| **Call site** | `AgentOrchestrator.run_learning()` |
+
+### H. `prd_agent`
+| Field | Value |
+|---|---|
+| **Purpose** | Generates Product Requirements Documents for feature requests and complex changes requiring structured specification. |
+| **Trigger** | Manual: "Prepare Deep Analysis" button → `/ticket/<id>/prepare-analysis` route with `deep=true`. |
+| **Input** | Ticket thread, analysis, KB evidence, PM decision, code context. |
+| **Output** | Structured PRD document (markdown). |
+| **Output stored** | `tickets.prd_content` field. `agent_logs`. |
+| **Output displayed** | Ticket detail → used in document download (Word/FR/EN). |
+| **Downstream consumer** | Document generation (Word export), Notion/Google Docs export. |
+| **Runtime status** | `wired_active` |
+| **Call site** | `prepare_analysis()` route + `AgentOrchestrator` deep analysis path |
