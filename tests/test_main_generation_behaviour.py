@@ -533,17 +533,22 @@ def test_decline_missing_llm_api_key_raises(monkeypatch):
             app_module.generate_decline_response("thread", "key", db=db, ticket_id=1)
 
 
-# ── validate_translation: intentionally deferred ──────────────────────────────
+# ── validate_translation: routed through LLMRouter when db provided ──────────
 
 
-def test_validate_translation_documented_as_deferred():
-    """validate_translation docstring must explicitly document LLMRouter deferral."""
+def test_validate_translation_documented_as_routed():
+    """validate_translation docstring must document LLMRouter usage when db is provided."""
     src = Path("app.py").read_text(encoding="utf-8")
     func_pos = src.find("def validate_translation(")
     assert func_pos != -1
-    # Read the docstring (next ~600 chars from the def line)
-    doc_window = src[func_pos:func_pos + 800]
-    assert "INTENTIONALLY DEFERRED" in doc_window or "intentionally deferred" in doc_window.lower()
+    # Read the docstring (next ~800 chars from the def line)
+    doc_window = src[func_pos:func_pos + 1000]
+    # Must document router path
+    assert "LLMRouter" in doc_window or "complete_main_llm" in doc_window
+    # Must document db=None backward compatibility
+    assert "db=None" in doc_window or "db is None" in doc_window or "db is provided" in doc_window
+    # Must NOT still say it is deferred
+    assert "INTENTIONALLY DEFERRED" not in doc_window
 
 
 def test_validate_translation_api_block_in_try_except():

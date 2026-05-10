@@ -2922,21 +2922,25 @@ LEGAL_TERM_PAIRS = {
 }
 
 
-def validate_translation(source_fr, translated_en, anthropic_key):
+def validate_translation(source_fr, translated_en, anthropic_key, db=None):
     """Validate that the EN translation preserves critical Luxembourg legal terms.
     Does a fast term-level check (no API call needed for most cases).
     Only calls the API for a reverse-translation spot-check if the draft is long.
 
     Returns the corrected EN translation (or the original if no issues found).
 
-    LLMRouter routing: INTENTIONALLY DEFERRED.
-    Rationale: this is secondary QA post-processing, not a primary generation path.
-    - The API call only fires for drafts >500 words (most skip it entirely).
+    LLMRouter routing:
+    - When db is provided: uses LLMRouter via complete_main_llm with
+      agent_name="draft_response_agent", max_tokens=2500.
+      No silent legacy fallback when db is provided.
+    - When db is None: uses legacy direct Anthropic path (backward compatibility).
+
+    Failure behaviour (both paths):
     - The entire API block is wrapped in try/except; failure is logged and swallowed.
-    - The function returns the already-translated text either way — it only applies
-      targeted fixes for known legal-term drift.
-    - Routing this through LLMRouter would add no user-visible benefit and would
-      complicate error propagation for a best-effort validation step.
+    - If the router call fails (ok=False) or raises, the function returns the
+      already-corrected draft (term fixes applied) without AI spot-check fixes.
+    - Never overwrites a valid EN draft with empty or error text.
+    - Non-blocking: draft generation continues regardless of validation outcome.
     """
     if not source_fr or not translated_en:
         return translated_en
@@ -2944,7 +2948,7 @@ def validate_translation(source_fr, translated_en, anthropic_key):
     corrected = translated_en
     fixes_applied = []
 
-    # Step 1: Fast term-level check — ensure exact legal term pairs
+    # Step 1: Fast term-level check — ensure exact legal term pairs (no API call)
     for fr_term, en_term in LEGAL_TERM_PAIRS.items():
         if fr_term in source_fr:
             # The FR source uses this term — check the EN version has the correct translation
@@ -2962,17 +2966,11 @@ def validate_translation(source_fr, translated_en, anthropic_key):
                         fixes_applied.append(f"Fixed: '{wrong}' → '{en_term}'")
                         break
 
-    # Step 2: For longer drafts (500+ words), do a quick reverse-translation spot-check
-    # using Haiku. This catches semantic drift that term-matching can't detect.
+    # Step 2: For longer drafts (500+ words), do a quick reverse-translation spot-check.
+    # This catches semantic drift that term-matching can't detect.
     # Skip for short drafts to avoid unnecessary API calls (speed matters).
-    if len(source_fr.split()) > 500 and anthropic_key:
-        try:
-            client = Anthropic(api_key=anthropic_key)
-            check_resp = call_anthropic_with_retry(
-                client,
-                model="claude-haiku-4-5-20251001",
-                max_tokens=500,
-                system="""You are a translation quality checker for Luxembourg legal/accounting documents.
+    if len(source_fr.split()) > 500:
+        _system = """You are a translation quality checker for Luxembourg legal/accounting documents.
 Compare the French source and English translation below. Check ONLY for:
 1. Legal terms mistranslated (e.g., "Conseil de Gérance" must be "Board of Managers", never "Management Board")
 2. Numbers or amounts that changed
@@ -2981,23 +2979,69 @@ Compare the French source and English translation below. Check ONLY for:
 
 Reply with ONLY a JSON object:
 {"issues_found": true/false, "fixes": [{"original": "wrong text", "corrected": "right text"}]}
-If no issues: {"issues_found": false, "fixes": []}""",
-                messages=[{"role": "user", "content": f"FRENCH SOURCE:\n{source_fr[:3000]}\n\nENGLISH TRANSLATION:\n{corrected[:3000]}"}],
-            )
-            check_text = check_resp.content[0].text.strip()
-            if check_text.startswith("```"):
-                check_text = check_text.split("```")[1]
-                if check_text.startswith("json"):
-                    check_text = check_text[4:]
-                check_text = check_text.strip()
-            check_result = json.loads(check_text)
-            if check_result.get("issues_found") and check_result.get("fixes"):
-                for fix in check_result["fixes"][:5]:
-                    if fix.get("original") and fix.get("corrected") and fix["original"] in corrected:
-                        corrected = corrected.replace(fix["original"], fix["corrected"], 1)
-                        fixes_applied.append(f"AI fix: '{fix['original'][:50]}' → '{fix['corrected'][:50]}'")
-        except Exception as e:
-            logger.warning(f"Translation validation API check failed: {e}")
+If no issues: {"issues_found": false, "fixes": []}"""
+        _messages = [{"role": "user", "content": f"FRENCH SOURCE:\n{source_fr[:3000]}\n\nENGLISH TRANSLATION:\n{corrected[:3000]}"}]
+
+        check_text = ""
+
+        if db is not None:
+            # ── Router path — no legacy fallback when db is provided ──────────
+            try:
+                from ai.main_llm import complete_main_llm
+                _router_result = complete_main_llm(
+                    db, "draft_response_agent", _system, _messages,
+                    purpose="translation_validation",
+                    max_tokens=2500,
+                )
+                if not _router_result["ok"]:
+                    logger.warning(
+                        f"validate_translation: LLMRouter call failed: {_router_result['error']} "
+                        f"— keeping current EN draft without AI spot-check."
+                    )
+                    if fixes_applied:
+                        logger.info(f"Translation validation applied {len(fixes_applied)} term fix(es): {fixes_applied}")
+                    return corrected
+                check_text = _router_result["text"].strip()
+            except Exception as exc:
+                logger.warning(
+                    f"validate_translation: router exception {type(exc).__name__} "
+                    f"— keeping current EN draft without AI spot-check."
+                )
+                if fixes_applied:
+                    logger.info(f"Translation validation applied {len(fixes_applied)} term fix(es): {fixes_applied}")
+                return corrected
+
+        elif anthropic_key:
+            # ── Legacy direct Anthropic path (db=None only) ───────────────────
+            try:
+                client = Anthropic(api_key=anthropic_key)
+                check_resp = call_anthropic_with_retry(
+                    client,
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=500,
+                    system=_system,
+                    messages=_messages,
+                )
+                check_text = check_resp.content[0].text.strip()
+            except Exception as e:
+                logger.warning(f"Translation validation API check failed: {e}")
+
+        # ── Parse and apply AI-suggested fixes (shared for both paths) ────────
+        if check_text:
+            try:
+                if check_text.startswith("```"):
+                    check_text = check_text.split("```")[1]
+                    if check_text.startswith("json"):
+                        check_text = check_text[4:]
+                    check_text = check_text.strip()
+                check_result = json.loads(check_text)
+                if check_result.get("issues_found") and check_result.get("fixes"):
+                    for fix in check_result["fixes"][:5]:
+                        if fix.get("original") and fix.get("corrected") and fix["original"] in corrected:
+                            corrected = corrected.replace(fix["original"], fix["corrected"], 1)
+                            fixes_applied.append(f"AI fix: '{fix['original'][:50]}' → '{fix['corrected'][:50]}'")
+            except Exception as e:
+                logger.warning(f"Translation validation: failed to parse check result: {e}")
 
     if fixes_applied:
         logger.info(f"Translation validation applied {len(fixes_applied)} fix(es): {fixes_applied}")
@@ -4934,7 +4978,7 @@ def generate_drafts(ticket_id):
             result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         # 5. Validate translation: reverse-translate EN→FR and check for legal term drift
-        result_en = validate_translation(result_fr, result_en, anthropic_key)
+        result_en = validate_translation(result_fr, result_en, anthropic_key, db=db)
 
         # 5b+5c. PM output guard + collect warnings + persist to qa_issues.
         try:
@@ -5172,7 +5216,7 @@ def regenerate_draft_pm(ticket_id):
         result_en = translate_draft(result_fr, "fr", "en", anthropic_key, db=db)
 
         # ── Validate translation ──────────────────────────────────────────────
-        result_en = validate_translation(result_fr, result_en, anthropic_key)
+        result_en = validate_translation(result_fr, result_en, anthropic_key, db=db)
 
         # ── Apply PM output guard + collect new warnings ──────────────────────
         result_fr, _new_guard_warnings = apply_pm_guard_and_collect(result_fr, _pm_dec)
