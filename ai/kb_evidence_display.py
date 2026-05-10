@@ -146,6 +146,9 @@ def build_kb_evidence_review(entries: List[dict]) -> dict:
             "snippet": snippet,
             "badge_label": badge_label,
             "severity": severity,
+            # source tag for semantic/hybrid entries ("keyword" | "semantic" | "hybrid")
+            # defaults to "keyword" so existing display is unchanged when absent
+            "source": str(raw.get("source") or "keyword"),
         })
 
     if not display_entries:

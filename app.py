@@ -293,6 +293,31 @@ def init_db():
 
     db.commit()
 
+    # Create kb_embedding_cache table (semantic RAG — idempotent migration)
+    try:
+        db.execute("""CREATE TABLE IF NOT EXISTS kb_embedding_cache (
+            record_id      TEXT PRIMARY KEY,
+            entry_id       TEXT,
+            provider       TEXT,
+            model          TEXT,
+            text_hash      TEXT,
+            embedding_json TEXT,
+            metadata_json  TEXT,
+            created_at     TEXT,
+            updated_at     TEXT
+        )""")
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_kbemb_entry_id "
+            "ON kb_embedding_cache(entry_id)"
+        )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_kbemb_provider_model "
+            "ON kb_embedding_cache(provider, model)"
+        )
+        db.commit()
+    except Exception:
+        pass
+
     # Create agent_model_config table (provider-agnostic per-agent LLM config)
     try:
         db.execute("""CREATE TABLE IF NOT EXISTS agent_model_config (
@@ -1041,6 +1066,110 @@ WRITING_STYLES = {
 - Sign off professionally""",
     },
 }
+
+
+def _augment_kb_with_semantic(
+    db,
+    keyword_entries,
+    subject="",
+    summary="",
+    template_name="",
+    workflow_name="",
+):
+    """Augment keyword KB entries with semantic matches when the feature flag is on.
+
+    Feature flag
+    ------------
+    ``semantic_rag_enabled`` setting must be ``"true"`` / ``"1"`` / ``"yes"``
+    (case-insensitive).  Default is false — existing behaviour is unchanged.
+
+    Fail-safe
+    ---------
+    Any exception in the semantic pipeline is caught; the function returns the
+    original *keyword_entries* unchanged.  Ticket processing is never blocked.
+
+    Returns
+    -------
+    list[dict]
+        Merged list from ``retrieve_hybrid_kb_entries``, or *keyword_entries*
+        unchanged when the flag is off or semantic retrieval fails.
+    """
+    try:
+        flag = get_setting("semantic_rag_enabled", "false", db=db).strip().lower()
+        if flag not in ("true", "1", "yes"):
+            return keyword_entries
+    except Exception:
+        return keyword_entries
+
+    try:
+        from ai.kb_semantic_foundation import build_semantic_kb_records  # noqa: PLC0415
+        from ai.kb_embeddings import (  # noqa: PLC0415
+            get_embedding_provider_config,
+            get_or_create_embeddings_for_records,
+            embed_texts,
+        )
+        from ai.kb_semantic_search import (  # noqa: PLC0415
+            semantic_search_kb_records,
+            build_semantic_evidence_entries,
+        )
+        from ai.kb_retrieval import retrieve_hybrid_kb_entries  # noqa: PLC0415
+
+        # Provider config
+        cfg = get_embedding_provider_config(db)
+        provider = cfg.get("provider", "openai")
+        model = cfg.get("model", "text-embedding-3-small")
+        if not cfg.get("has_key"):
+            logger.warning("Semantic RAG enabled but no embedding API key configured")
+            return keyword_entries
+
+        top_k = int(get_setting("semantic_rag_top_k", "5", db=db) or "5")
+        try:
+            min_score = float(get_setting("semantic_rag_min_score", "0.65", db=db) or "0.65")
+        except ValueError:
+            min_score = 0.65
+
+        # Build semantic records from entire KB
+        all_kb_rows = db.execute(
+            "SELECT id, category, title, content FROM knowledge_base ORDER BY category, title"
+        ).fetchall()
+        if not all_kb_rows:
+            return keyword_entries
+        all_kb_entries = [dict(r) for r in all_kb_rows]
+        kb_records = build_semantic_kb_records(all_kb_entries)
+        if not kb_records:
+            return keyword_entries
+
+        # Get or create embeddings (cached)
+        embedded_records = get_or_create_embeddings_for_records(db, kb_records, provider, model)
+
+        # Embed the ticket query
+        query_text = " ".join(
+            part for part in [subject, summary, template_name, workflow_name] if part
+        ).strip()
+        if not query_text:
+            return keyword_entries
+
+        query_embeddings = embed_texts(db, [query_text], provider=provider, model=model)
+        if not query_embeddings or not query_embeddings[0]:
+            return keyword_entries
+        query_emb = query_embeddings[0]
+
+        # Semantic search
+        matches = semantic_search_kb_records(
+            query_emb, embedded_records, top_k=top_k, min_score=min_score
+        )
+        semantic_ev = build_semantic_evidence_entries(matches)
+
+        # Merge with keyword results
+        return retrieve_hybrid_kb_entries(
+            db, {}, keyword_entries, semantic_ev, top_n=8
+        )
+
+    except Exception as _sem_err:
+        logger.warning(
+            "Semantic KB augmentation failed, falling back to keyword-only: %s", _sem_err
+        )
+        return keyword_entries
 
 
 def get_knowledge_base_context(db, max_per_entry=6000, max_total=30000):
@@ -3601,6 +3730,13 @@ def run_analysis_job():
                             template_name=ticket_data.get("template_name", ""),
                             workflow_name=ticket_data.get("workflow_name", ""),
                         )
+                        _kb_entries_ingest = _augment_kb_with_semantic(
+                            db, _kb_entries_ingest,
+                            subject=ticket_data.get("subject", ""),
+                            summary=_pm_summary,
+                            template_name=ticket_data.get("template_name", ""),
+                            workflow_name=ticket_data.get("workflow_name", ""),
+                        )
                         _kb_sigs_ingest = derive_kb_evidence_signals(_kb_entries_ingest)
                         _pm_evidence["kb_evidence_signals"] = _kb_sigs_ingest
                         # ── Persist snapshot (ingest) ──────────────────────────
@@ -4444,6 +4580,13 @@ def ticket_detail(ticket_id):
                 template_name=ticket_dict.get("template_name") or "",
                 workflow_name=ticket_dict.get("workflow_name") or "",
             )
+            _kb_display_entries = _augment_kb_with_semantic(
+                db, _kb_display_entries,
+                subject=ticket_dict.get("subject") or "",
+                summary=ticket_dict.get("description") or ticket_dict.get("compiled_thread") or "",
+                template_name=ticket_dict.get("template_name") or "",
+                workflow_name=ticket_dict.get("workflow_name") or "",
+            )
             ticket_dict["kb_evidence_review"] = build_kb_evidence_review(_kb_display_entries)
             ticket_dict["kb_evidence_review_source"] = "live"
             _kb_quality_entries = _kb_display_entries
@@ -4893,6 +5036,13 @@ def generate_drafts(ticket_id):
             )
             _kb_entries_draft = retrieve_relevant_kb_entries(
                 db,
+                subject=ticket["subject"] or "",
+                summary=ticket.get("description", "") or "",
+                template_name=_row_get(ticket, "template_name", "") or "",
+                workflow_name=_row_get(ticket, "workflow_name", "") or "",
+            )
+            _kb_entries_draft = _augment_kb_with_semantic(
+                db, _kb_entries_draft,
                 subject=ticket["subject"] or "",
                 summary=ticket.get("description", "") or "",
                 template_name=_row_get(ticket, "template_name", "") or "",

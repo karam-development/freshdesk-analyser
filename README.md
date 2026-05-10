@@ -16,11 +16,13 @@ analyses them with an LLM, generates draft replies, and tracks BSO metrics.
 | [Production Checklist](docs/PRODUCTION_CHECKLIST.md) | Pre-deployment and operational requirements |
 | [Live Demo Smoke Test](docs/LIVE_DEMO_SMOKE_TEST.md) | Manual and automated pre-demo checks |
 | [Playwright Smoke Tests](docs/PLAYWRIGHT_SMOKE_TESTS.md) | Optional browser-level UI smoke tests |
-| [Semantic KB Retrieval Plan](docs/SEMANTIC_KB_RETRIEVAL_PLAN.md) | KB chunking foundation and future embedding roadmap |
+| [Semantic KB Retrieval Plan](docs/SEMANTIC_KB_RETRIEVAL_PLAN.md) | Semantic RAG feature flag, embedding cache, and hybrid retrieval plan |
 
 > **Safety rule:** AI drafts are suggestions only — no auto-send behaviour exists. Human review is required before any reply is sent.
 
 > **Security:** A Security Readiness card is available on the Settings page and via `GET /api/security-readiness`. It checks for weak `SECRET_KEY`, enabled debug mode, and missing API keys — without exposing any secret values.
+
+> **Semantic RAG:** Semantic KB retrieval is available behind the `semantic_rag_enabled` setting (default: off). When enabled, KB entries are chunked, embedded via OpenAI, cached, and merged with keyword results. Keyword retrieval remains the default and the fallback.
 
 ---
 

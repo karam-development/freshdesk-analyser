@@ -4,6 +4,10 @@ This document describes the phased plan to evolve the Knowledge Base retrieval s
 from deterministic keyword matching to hybrid semantic / vector retrieval — without
 breaking existing behaviour at any stage.
 
+> **Status (PR 38):** Semantic RAG is implemented and available behind a feature flag.
+> It is **OFF by default**.  The keyword retrieval path is unchanged.
+> Enable only after configuring the embedding provider and API key in Settings.
+
 ---
 
 ## Current state — deterministic keyword retrieval
@@ -66,7 +70,45 @@ What PR 37 adds:
 
 ---
 
-## PR 38 — Embedding generation and cache design (future)
+## PR 38 — Semantic RAG behind feature flag ✅ DONE
+
+**Files added/changed:**
+- `ai/kb_embeddings.py` — embedding cache helpers (OpenAI provider)
+- `ai/kb_semantic_search.py` — cosine similarity, semantic search, evidence formatting
+- `ai/kb_retrieval.py` — `retrieve_hybrid_kb_entries` (keyword + semantic merge)
+- `app.py` — `kb_embedding_cache` DB table, `_augment_kb_with_semantic` helper, wired at 3 retrieval points
+- `templates/ticket.html` — source badge (semantic / hybrid) in KB Evidence card
+
+**Feature flag settings** (all default to off/safe values):
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `semantic_rag_enabled` | `false` | Master switch. Must be `true` to activate |
+| `semantic_rag_provider` | same as `llm_provider` | Embedding provider |
+| `semantic_embedding_model` | `text-embedding-3-small` | Embedding model |
+| `semantic_rag_top_k` | `5` | Max semantic results per query |
+| `semantic_rag_min_score` | `0.65` | Minimum cosine similarity (0–1) |
+
+**When `semantic_rag_enabled=false` (default):**
+- `_augment_kb_with_semantic` returns keyword results immediately.
+- No embedding API calls are made.
+- No DB reads/writes to `kb_embedding_cache`.
+- Behaviour is identical to pre-PR-38.
+
+**When `semantic_rag_enabled=true`:**
+- KB entries are chunked via `build_semantic_kb_records`.
+- Embeddings are generated on first use and cached in `kb_embedding_cache`.
+- Ticket query is embedded and scored by cosine similarity.
+- Semantic matches above `min_score` are merged with keyword results.
+- Entries in both sets get `source="hybrid"`; semantic-only get `source="semantic"`.
+- Source badge shown in KB Evidence card.
+- Any failure falls back to keyword-only silently.
+
+**Cost notice:** Enabling semantic RAG will incur embedding API calls.
+The `text-embedding-3-small` model is billed per token by OpenAI.
+Embeddings are cached to minimise repeat costs.
+
+## PR 38 (original plan) — Embedding generation and cache design — SUPERSEDED
 
 **Goal:** Design and implement embedding generation for the chunk records produced
 by PR 37.

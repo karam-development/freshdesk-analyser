@@ -875,6 +875,9 @@
                                 {% elif kbentry.severity == 'info' %}#dbeafe;color:#1e40af
                                 {% else %}#f3f4f6;color:#374151
                                 {% endif %};">{{ kbentry.badge_label }}</span>
+                            {% if kbentry.source and kbentry.source != 'keyword' %}
+                            <span style="font-size:0.63em;margin-left:3px;padding:1px 5px;border-radius:6px;white-space:nowrap;{% if kbentry.source == 'semantic' %}background:#ede9fe;color:#5b21b6;border:1px solid #c4b5fd;{% elif kbentry.source == 'hybrid' %}background:#fef3c7;color:#92400e;border:1px solid #fcd34d;{% else %}background:#f3f4f6;color:#374151;{% endif %}">{{ kbentry.source }}</span>
+                            {% endif %}
                         </td>
                         <td style="font-size:0.82em;font-weight:500;max-width:180px;">{{ kbentry.title }}</td>
                         <td style="font-size:0.82em;font-weight:600;color:{% if kbentry.score >= 8 %}var(--success,#38a169){% elif kbentry.score >= 4 %}var(--warning-color,#d97706){% else %}var(--text-muted){% endif %};">{{ kbentry.score }}</td>
