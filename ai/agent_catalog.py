@@ -26,14 +26,24 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
 
     Keys are lowercase agent_name values as stored in agent_model_config.
     Values have: purpose (str), used_in (str), status (str).
+    status: "active" = in use now, "reserved" = registered but not yet wired.
     """
     return {
+        # ── Core pipeline agents (active) ──────────────────────────────────────
+        "main_analysis_agent": {
+            "purpose": (
+                "Classifies the ticket, produces the structured analysis (RICE scores, "
+                "risk level, PM decision context). Entry point of the analysis pipeline."
+            ),
+            "used_in": "Ticket analysis (run on fetch / manual re-analysis)",
+            "status": "active",
+        },
         "kb_agent": {
             "purpose": (
                 "Searches the Knowledge Base for entries relevant to the ticket subject, "
                 "template, and workflow. Produces a validated KB brief for draft generation."
             ),
-            "used_in": "Draft generation (parallel prep phase)",
+            "used_in": "Draft generation — parallel prep phase",
             "status": "active",
         },
         "code_agent": {
@@ -42,7 +52,7 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
                 "feasibility of requested changes. Provides a plain-language code brief "
                 "free of raw code."
             ),
-            "used_in": "Draft generation (parallel prep phase)",
+            "used_in": "Draft generation — parallel prep phase",
             "status": "active",
         },
         "research_agent": {
@@ -50,7 +60,15 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
                 "Searches past ticket history for similar resolved issues and patterns. "
                 "Surfaces relevant lessons and precedents to guide the draft."
             ),
-            "used_in": "Draft generation (parallel prep phase)",
+            "used_in": "Draft generation — parallel prep phase",
+            "status": "active",
+        },
+        "draft_response_agent": {
+            "purpose": (
+                "Generates the FR and EN draft responses using all agent briefs, KB evidence, "
+                "PM decision constraints, and structured lessons. Main output agent."
+            ),
+            "used_in": "Draft generation, PM-constrained regeneration",
             "status": "active",
         },
         "qa_agent": {
@@ -68,6 +86,79 @@ def get_agent_purpose_catalog() -> Dict[str, Dict[str, str]]:
             ),
             "used_in": "Post-approval learning loop (triggered on ticket approval/edit)",
             "status": "active",
+        },
+        "prd_agent": {
+            "purpose": (
+                "Generates Product Requirements Documents (PRDs) for feature requests and "
+                "complex changes that require structured specification."
+            ),
+            "used_in": "PRD generation (manual trigger on ticket page)",
+            "status": "active",
+        },
+        # ── Reserved / planned agents ──────────────────────────────────────────
+        "classification_agent": {
+            "purpose": (
+                "Reserved — dedicated fast classification pass to pre-label ticket type "
+                "before full analysis, reducing main agent token usage."
+            ),
+            "used_in": "Planned: pre-analysis classification",
+            "status": "reserved",
+        },
+        "summary_agent": {
+            "purpose": (
+                "Reserved — generates compact ticket summaries for dashboard previews "
+                "and weekly digests."
+            ),
+            "used_in": "Planned: dashboard summaries / digests",
+            "status": "reserved",
+        },
+        "feasibility_agent": {
+            "purpose": (
+                "Reserved — dedicated technical feasibility assessment for complex change "
+                "requests, separate from the code agent brief."
+            ),
+            "used_in": "Planned: feasibility pre-screening",
+            "status": "reserved",
+        },
+        "batch_agent": {
+            "purpose": (
+                "Reserved — processes multiple tickets in a batch job (nightly re-analysis, "
+                "bulk KB refresh, scheduled re-scoring)."
+            ),
+            "used_in": "Planned: scheduled batch processing",
+            "status": "reserved",
+        },
+        "reply_scanner_agent": {
+            "purpose": (
+                "Reserved — scans incoming Freshdesk replies for PO corrections, lesson "
+                "signals, and approval confirmations to feed the learning loop."
+            ),
+            "used_in": "Planned: reply monitoring / learning loop intake",
+            "status": "reserved",
+        },
+        "jira_agent": {
+            "purpose": (
+                "Reserved — searches and summarises Jira issues related to the ticket "
+                "subject to surface known bugs and in-flight development work."
+            ),
+            "used_in": "Planned: Jira context injection into drafts",
+            "status": "reserved",
+        },
+        "notification_agent": {
+            "purpose": (
+                "Reserved — sends internal notifications (Slack, email) when tickets are "
+                "approved, flagged, or require escalation."
+            ),
+            "used_in": "Planned: internal notification dispatch",
+            "status": "reserved",
+        },
+        "reporting_agent": {
+            "purpose": (
+                "Reserved — generates weekly/monthly support reports: ticket volumes, "
+                "resolution rates, common patterns, PM decision breakdown."
+            ),
+            "used_in": "Planned: management reporting",
+            "status": "reserved",
         },
     }
 
