@@ -845,6 +845,101 @@
         {% endif %}
     </div>
 
+    <!-- AGENT RUN STATUS CARD -->
+    <div class="card">
+        <h3 class="card-heading">Agent Run Status <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only · auto-refreshed on next analysis</small></h3>
+        {% if ticket.agent_runs %}
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8em;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--text-muted);text-align:left;">
+                    <th style="padding:4px 8px;">Agent</th>
+                    <th style="padding:4px 8px;">Flow</th>
+                    <th style="padding:4px 8px;">Status</th>
+                    <th style="padding:4px 8px;">Duration</th>
+                    <th style="padding:4px 8px;">Summary</th>
+                    <th style="padding:4px 8px;">Started</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for run in ticket.agent_runs %}
+            <tr style="border-bottom:1px solid var(--border-light,#f1f5f9);">
+                <td style="padding:4px 8px;font-weight:500;">{{ run.agent_name | replace('_agent','') | replace('_',' ') | title }}</td>
+                <td style="padding:4px 8px;color:var(--text-muted);">{{ run.flow or '–' }}</td>
+                <td style="padding:4px 8px;">
+                    {% if run.status == 'completed' %}
+                    <span class="badge badge--success" style="font-size:0.7em;">✓ completed</span>
+                    {% elif run.status == 'failed' %}
+                    <span class="badge badge--danger" style="font-size:0.7em;">✗ failed</span>
+                    {% elif run.status == 'running' %}
+                    <span class="badge badge--warning" style="font-size:0.7em;">⟳ running</span>
+                    {% elif run.status == 'skipped' %}
+                    <span style="color:var(--text-muted);font-size:0.75em;">– skipped</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);font-size:0.75em;">{{ run.status }}</span>
+                    {% endif %}
+                </td>
+                <td style="padding:4px 8px;color:var(--text-muted);">
+                    {% if run.duration_ms %}{{ run.duration_ms }}ms{% else %}–{% endif %}
+                </td>
+                <td style="padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);"
+                    title="{{ run.output_summary or run.error or '' }}">
+                    {% if run.status == 'failed' and run.error %}
+                    <span style="color:var(--danger,#e53e3e);">{{ run.error[:80] }}</span>
+                    {% else %}
+                    {{ (run.output_summary or '–')[:80] }}
+                    {% endif %}
+                </td>
+                <td style="padding:4px 8px;color:var(--text-muted);font-size:0.75em;">{{ run.started_at[:16] if run.started_at else '–' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No agent runs recorded yet for this ticket. Trigger an analysis to populate this table.</p>
+        {% endif %}
+    </div>
+    <!-- END AGENT RUN STATUS CARD -->
+
+    <!-- AGENT BRIEFS CARD -->
+    <div class="card">
+        <details>
+        <summary style="cursor:pointer;font-weight:600;font-size:0.9em;color:var(--text-muted);padding:2px 0;user-select:none;">
+            Agent Briefs <small style="font-weight:400;font-size:0.8em;">({{ ticket.agent_briefs.keys()|list|length if ticket.agent_briefs else 0 }} agent{{ 's' if (ticket.agent_briefs and ticket.agent_briefs.keys()|list|length != 1) else '' }})</small>
+        </summary>
+        {% if ticket.agent_briefs %}
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px;">
+            {% for agent_name, brief in ticket.agent_briefs.items() %}
+            <div style="border-left:3px solid var(--border);padding:8px 12px;border-radius:0 4px 4px 0;background:var(--bg-subtle,#f8fafc);">
+                <div style="font-weight:600;font-size:0.8em;margin-bottom:4px;text-transform:uppercase;color:var(--text-muted);">
+                    {{ agent_name | replace('_agent','') | replace('_',' ') | title }}
+                </div>
+                {% if brief is mapping %}
+                    {% for k, v in brief.items() %}
+                    {% if k != '_raw' and v %}
+                    <div style="font-size:0.8em;margin-bottom:2px;">
+                        <span style="color:var(--text-muted);font-weight:500;">{{ k | replace('_',' ') | title }}:</span>
+                        <span>{{ v if v is string else v|tojson }}</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% if brief.get('_raw') %}
+                    <div style="font-size:0.8em;color:var(--text-muted);">{{ brief._raw[:300] }}</div>
+                    {% endif %}
+                {% else %}
+                <div style="font-size:0.8em;color:var(--text-muted);">{{ brief|string|truncate(300) }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:8px 0;">No agent briefs available yet. Run an analysis to populate agent outputs.</p>
+        {% endif %}
+        </details>
+    </div>
+    <!-- END AGENT BRIEFS CARD -->
+
     <!-- PM GUARD REVIEW CARD -->
     <div class="card">
         <h3 class="card-heading">PM Guard Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>

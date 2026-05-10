@@ -79,88 +79,69 @@
         </div>
     </div>
 
-    <!-- ── Agent Pipeline Overview ── -->
+    <!-- ── Runtime Agent Map ── -->
     <div class="card">
-        <h3 style="font-size:0.95em;font-weight:700;margin-bottom:4px;">Pipeline Architecture</h3>
+        <h3 style="font-size:0.95em;font-weight:700;margin-bottom:4px;">Runtime Agent Map</h3>
         <p style="font-size:0.82em;color:var(--text-muted);margin:0 0 14px 0;">
-            All 16 registered agents — <span style="color:#16a34a;font-weight:600;">active</span> agents run today,
-            <span style="color:var(--text-muted);font-weight:600;">reserved</span> agents are wired for future use.
+            All 16 registered agents — live status from <code>agent_runs</code> table.
+            <span style="color:#16a34a;font-weight:600;">Wired</span> agents produced at least one completed run.
             No agent auto-sends replies — all output requires human review.
         </p>
-
-        <!-- Active agents -->
-        <p style="font-size:0.78em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0 0 8px 0;">Active — in use now</p>
-        <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:18px;">
-            <div style="padding:8px 12px;background:#f0fdf4;border-radius:6px;border-left:3px solid #16a34a;">
-                <strong>1. main_analysis_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Sonnet · ticket analysis)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Classifies ticket, produces structured analysis, RICE scores, PM decision context. Entry point of the pipeline.</span>
-            </div>
-            <div style="padding:8px 12px;background:var(--primary-bg);border-radius:6px;border-left:3px solid var(--primary);">
-                <strong>2. kb_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Haiku · parallel prep)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Reads knowledge base, extracts relevant entries, validates accounting feasibility for the draft.</span>
-            </div>
-            <div style="padding:8px 12px;background:var(--info-bg);border-radius:6px;border-left:3px solid var(--info);">
-                <strong>3. code_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Haiku · parallel prep)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Analyses template code, finds reference patterns, assesses technical feasibility. Output is plain-language — no raw code.</span>
-            </div>
-            <div style="padding:8px 12px;background:#fef3c7;border-radius:6px;border-left:3px solid #d97706;">
-                <strong>4. research_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Haiku · parallel prep)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Searches past tickets for similar resolved issues and patterns. Surfaces precedents and lessons for the draft.</span>
-            </div>
-            <div style="padding:8px 12px;background:var(--warning-bg);border-radius:6px;border-left:3px solid var(--warning);">
-                <strong>5. draft_response_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Sonnet · draft generation)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Generates FR and EN draft responses using all agent briefs, KB evidence, PM constraints, and structured lessons.</span>
-            </div>
-            <div style="padding:8px 12px;background:#fff1f2;border-radius:6px;border-left:3px solid var(--danger);">
-                <strong>6. qa_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Haiku · QA)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Reviews draft for quality, tone, completeness, and PM-constraint compliance. Flags issues. May trigger one regeneration cycle.</span>
-            </div>
-            <div style="padding:8px 12px;background:#faf5ff;border-radius:6px;border-left:3px solid #7c3aed;">
-                <strong>7. learning_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Haiku · learning loop)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Extracts reusable lessons from PO edits and Freshdesk replies. Stores them as structured PM lessons for future drafts.</span>
-            </div>
-            <div style="padding:8px 12px;background:#eff6ff;border-radius:6px;border-left:3px solid #3b82f6;">
-                <strong>8. prd_agent</strong> <span style="color:var(--text-muted);font-size:0.82em;">(Sonnet · PRD generation)</span><br>
-                <span style="font-size:0.88em;color:var(--text-secondary);">Generates Product Requirements Documents for feature requests and complex changes requiring structured specification.</span>
-            </div>
+        {% if agent_runtime_map %}
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.82em;">
+            <thead>
+                <tr style="border-bottom:2px solid var(--border);color:var(--text-muted);text-align:left;">
+                    <th style="padding:5px 8px;">#</th>
+                    <th style="padding:5px 8px;">Agent</th>
+                    <th style="padding:5px 8px;">Flow</th>
+                    <th style="padding:5px 8px;">Trigger</th>
+                    <th style="padding:5px 8px;">Runtime Status</th>
+                    <th style="padding:5px 8px;">Runs (all time)</th>
+                    <th style="padding:5px 8px;">Last Run</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for entry in agent_runtime_map %}
+            <tr style="border-bottom:1px solid var(--border-light,#f1f5f9);">
+                <td style="padding:5px 8px;color:var(--text-muted);">{{ loop.index }}</td>
+                <td style="padding:5px 8px;font-weight:600;">{{ entry.agent_name }}</td>
+                <td style="padding:5px 8px;color:var(--text-muted);font-size:0.78em;">{{ entry.flow or '–' }}</td>
+                <td style="padding:5px 8px;font-size:0.78em;color:var(--text-muted);">{{ entry.trigger or '–' }}</td>
+                <td style="padding:5px 8px;">
+                    {% if entry.runtime_status == 'wired_active' %}
+                    <span class="badge badge--success" style="font-size:0.72em;">✓ wired · active</span>
+                    {% elif entry.runtime_status == 'wired_now' %}
+                    <span class="badge badge--success" style="font-size:0.72em;background:#dcfce7;color:#166534;">✓ wired · new</span>
+                    {% elif entry.runtime_status == 'reserved' %}
+                    <span style="font-size:0.75em;color:var(--text-muted);">— reserved</span>
+                    {% else %}
+                    <span style="font-size:0.75em;color:var(--text-muted);">{{ entry.runtime_status }}</span>
+                    {% endif %}
+                </td>
+                <td style="padding:5px 8px;text-align:center;color:{% if entry.completed_runs > 0 %}#16a34a{% else %}var(--text-muted){% endif %};">
+                    {{ entry.completed_runs or 0 }}
+                    {% if entry.failed_runs > 0 %}
+                    <span style="color:#dc2626;font-size:0.75em;"> ({{ entry.failed_runs }} err)</span>
+                    {% endif %}
+                </td>
+                <td style="padding:5px 8px;font-size:0.75em;color:var(--text-muted);">
+                    {{ entry.last_run[:16] if entry.last_run else '–' }}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
         </div>
-
-        <!-- Reserved agents -->
-        <p style="font-size:0.78em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin:0 0 8px 0;">Reserved — registered, not yet wired</p>
-        <div style="display:flex;flex-direction:column;gap:4px;">
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">classification_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · fast pre-classification before full analysis to reduce main agent token usage</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">summary_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · compact ticket summaries for dashboard previews and weekly digests</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">feasibility_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · dedicated technical feasibility pre-screen, separate from code agent</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">batch_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · scheduled batch jobs: nightly re-analysis, bulk KB refresh, re-scoring</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">reply_scanner_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · scans incoming Freshdesk replies for PO corrections and lesson signals</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">jira_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · searches and summarises related Jira issues to surface known bugs and in-flight work</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">notification_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Haiku · internal notifications (Slack, email) on approval, flags, and escalations</span>
-            </div>
-            <div style="padding:6px 12px;background:var(--bg-subtle,#f8fafc);border-radius:6px;border-left:3px solid #d1d5db;display:flex;gap:12px;align-items:baseline;">
-                <strong style="font-size:0.85em;min-width:170px;">reporting_agent</strong>
-                <span style="font-size:0.82em;color:var(--text-muted);">Sonnet · weekly/monthly reports: ticket volumes, resolution rates, PM decision breakdown</span>
-            </div>
-        </div>
+        {% else %}
+        {# Fallback static table if route didn't inject agent_runtime_map #}
+        <p style="font-size:0.82em;color:var(--text-muted);">
+            Wired agents (run on every analysis): <strong>main_analysis_agent, kb_agent, code_agent, research_agent,
+            draft_response_agent, qa_agent, learning_agent, prd_agent, classification_agent, summary_agent,
+            feasibility_agent, jira_agent, notification_agent</strong>.
+            API agents (manual trigger): <strong>reply_scanner_agent, batch_agent, reporting_agent</strong>.
+        </p>
+        {% endif %}
     </div>
 </div>
 

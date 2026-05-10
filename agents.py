@@ -1005,23 +1005,466 @@ Extract lessons from what the PO changed. Focus on patterns, not one-off fixes."
 #  5. ORCHESTRATOR — Coordinates the Full Pipeline
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════════
+#  NEW AGENTS — wired in this release
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def classification_agent(client, ticket_subject, ticket_description, llm_router=None):
+    """Pre-analysis fast classifier. Runs before main_analysis_agent.
+    Returns JSON: {classification, confidence, reason, ticket_type}"""
+    system = """You are a fast ticket pre-classifier for Silverfin's Luxembourg templates support team.
+Your job: read the ticket subject and description and output a JSON classification.
+
+Classification values (use exactly one):
+- "bug": Something that worked before and is now broken, or behaves differently than documented
+- "feature_request": Client wants new functionality not currently available
+- "how_to": Client needs guidance on how to use an existing feature
+- "client_preference": Client wants a change that is a personal/company preference, not a bug
+- "expected_behaviour": The current behaviour is correct; client misunderstands it
+- "data": Issue with data, imports, account values, or synchronisation
+- "sync": Synchronisation issue between templates or periods
+- "needs_analysis": Cannot classify without more investigation
+
+OUTPUT — valid JSON only, no prose:
+{
+  "classification": "<one of the values above>",
+  "confidence": <0.0 to 1.0>,
+  "reason": "<one sentence explaining the classification>",
+  "ticket_type": "<simple | complex | needs_investigation>"
+}"""
+    user_msg = f"Subject: {ticket_subject}\n\nDescription:\n{ticket_description[:2000]}"
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="classification_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=300,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=300,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("classification", "needs_analysis")
+        result.setdefault("confidence", 0.5)
+        result.setdefault("reason", "")
+        result.setdefault("ticket_type", "needs_investigation")
+        logger.info(f"Classification Agent: {result['classification']} ({result['confidence']:.2f}) for: {ticket_subject[:50]}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Classification Agent failed: {e}")
+        return {"classification": "needs_analysis", "confidence": 0.0, "reason": str(e)[:100], "ticket_type": "needs_investigation"}, {}
+
+
+def summary_agent(client, compiled_thread, ticket_subject, llm_router=None):
+    """Produces a clean structured summary of the full ticket thread.
+    Returns structured text with summary, user_request, affected_template, etc."""
+    system = """You are a ticket summariser for Silverfin's Luxembourg templates support team.
+Your job: read the full ticket conversation and produce a clean, structured summary.
+
+OUTPUT FORMAT — plain structured text, no JSON, no markdown:
+
+TICKET SUMMARY: <2-3 sentence factual summary of what the client is reporting>
+
+USER REQUEST: <exact thing the client wants, in concrete terms>
+
+AFFECTED TEMPLATE: <template name if mentioned, or "Unknown">
+
+AFFECTED WORKFLOW: <workflow/note name if mentioned, or "Unknown">
+
+CLIENT CONTEXT: <client company name or domain if detectable, else "Unknown">
+
+CONVERSATION CONTEXT: <any important prior exchanges, previous fixes, or related context>
+
+Be precise. Do not invent information not present in the thread."""
+    user_msg = f"Ticket: {ticket_subject}\n\nThread:\n{compiled_thread[:6000]}"
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="summary_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=600,
+            )
+            text = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=600,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        logger.info(f"Summary Agent: {len(text)} chars for: {ticket_subject[:50]}")
+        return text, usage
+    except Exception as e:
+        logger.error(f"Summary Agent failed: {e}")
+        return f"Summary Agent failed: {str(e)[:100]}", {}
+
+
+def feasibility_agent(client, ticket_subject, summary_brief, code_brief, kb_brief, llm_router=None):
+    """Dedicated technical feasibility assessment combining code + KB briefs.
+    Returns JSON: {verdict, reason, conditions, existing_solution, dev_effort_estimate}"""
+    system = """You are the Technical Feasibility Agent for Silverfin's Luxembourg templates team.
+Your job: given a ticket summary, template code analysis, and knowledge base brief,
+assess whether the requested change is technically feasible.
+
+OUTPUT — valid JSON only:
+{
+  "verdict": "<feasible | infeasible | workaround_exists | setting_exists | needs_dev | unclear>",
+  "reason": "<concrete one-paragraph explanation of the verdict>",
+  "conditions": "<any conditions that affect feasibility, or empty string>",
+  "existing_solution": "<describe if solution already exists in the template, else empty string>",
+  "dev_effort_estimate": "<none | trivial | small | medium | large | unknown>"
+}
+
+Verdict guide:
+- feasible: Can be implemented in Silverfin Liquid without major effort
+- infeasible: Cannot be implemented due to Liquid limitations or accounting rules
+- workaround_exists: Cannot be implemented as requested, but a workaround is available
+- setting_exists: The requested feature already exists via a template setting/dropdown
+- needs_dev: Feasible but requires significant development effort
+- unclear: Cannot assess without more template access or context"""
+    has_code = bool(code_brief and code_brief.strip() and "unavailable" not in code_brief.lower()[:50])
+    user_msg = f"""TICKET: {ticket_subject}
+
+TICKET SUMMARY:
+{summary_brief[:1500] if summary_brief else "(not available)"}
+
+TEMPLATE CODE ANALYSIS:
+{code_brief[:2000] if has_code else "(no template code available — base assessment on KB only)"}
+
+KNOWLEDGE BASE BRIEF:
+{kb_brief[:2000] if kb_brief else "(not available)"}
+
+Assess the technical feasibility of the requested change."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="feasibility_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=600,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=600,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("verdict", "unclear")
+        result.setdefault("reason", "")
+        result.setdefault("conditions", "")
+        result.setdefault("existing_solution", "")
+        result.setdefault("dev_effort_estimate", "unknown")
+        logger.info(f"Feasibility Agent: {result['verdict']} for: {ticket_subject[:50]}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Feasibility Agent failed: {e}")
+        return {"verdict": "unclear", "reason": str(e)[:100], "conditions": "", "existing_solution": "", "dev_effort_estimate": "unknown"}, {}
+
+
+def jira_agent(client, ticket_subject, jira_raw_text, pm_context="", llm_router=None):
+    """LLM-powered Jira context summariser. Replaces raw Jira text with structured brief.
+    Returns plain text structured summary."""
+    system = """You are the Jira Context Agent for Silverfin's Luxembourg templates support team.
+Your job: read raw Jira search results and produce a clean, structured summary for use by
+other agents and PMs.
+
+OUTPUT FORMAT — plain structured text:
+
+JIRA SUMMARY: <1-2 sentences summarising what was found>
+
+LINKED ISSUES: <list of relevant Jira issues with key, title, status — or "None found">
+
+DEVELOPMENT STATUS: <current dev status for relevant issues — or "No development in progress">
+
+RELEVANT CONTEXT: <anything from Jira that is directly relevant to this ticket — bugs, features, decisions>
+
+If no relevant Jira issues exist, say so clearly. Do not invent issues."""
+    user_msg = f"""TICKET: {ticket_subject}
+
+{f"PM CONTEXT: {pm_context[:500]}" if pm_context else ""}
+
+RAW JIRA SEARCH RESULTS:
+{jira_raw_text[:3000]}
+
+Summarise the relevant Jira context for this ticket."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="jira_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=500,
+            )
+            text = resp.text.strip() if resp.text else ""
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=500,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        logger.info(f"Jira Agent: {len(text)} chars for: {ticket_subject[:50]}")
+        return text, usage
+    except Exception as e:
+        logger.error(f"Jira Agent failed: {e}")
+        return jira_raw_text, {}  # Fallback: return raw text unchanged
+
+
+def notification_agent(client, ticket_subject, classification, risk_level, pm_decision_summary, llm_router=None):
+    """Generates internal notification preview for high-risk or blocked tickets.
+    Preview only — no external sends. Returns JSON notification."""
+    system = """You are the Internal Notification Agent for Silverfin's Luxembourg templates support team.
+Your job: generate a concise internal notification message for tickets that are high-risk,
+blocked, or need immediate PM attention.
+
+OUTPUT — valid JSON only:
+{
+  "severity": "<critical | high | medium>",
+  "headline": "<one-line notification headline, max 80 chars>",
+  "body": "<2-3 sentence notification body for the team>",
+  "recommended_action": "<what the recipient should do>",
+  "channels_suggested": ["internal_slack", "pm_review_queue"]
+}
+
+This is a PREVIEW ONLY — it will NOT be sent automatically. A human must review and send it."""
+    user_msg = f"""Ticket: {ticket_subject}
+Classification: {classification or "unknown"}
+Risk level: {risk_level or "unknown"}
+PM Decision: {pm_decision_summary or "not yet set"}
+
+Generate an internal notification for the support team about this ticket."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="notification_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=400,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=400,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("severity", "medium")
+        result.setdefault("headline", f"Ticket needs attention: {ticket_subject[:60]}")
+        result.setdefault("body", "")
+        result.setdefault("recommended_action", "Review and set PO decision.")
+        result.setdefault("channels_suggested", ["internal_slack"])
+        logger.info(f"Notification Agent: severity={result['severity']} for: {ticket_subject[:50]}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Notification Agent failed: {e}")
+        return {"severity": "medium", "headline": f"Ticket: {ticket_subject[:60]}", "body": str(e)[:100], "recommended_action": "Review manually.", "channels_suggested": []}, {}
+
+
+def reply_scanner_agent(client, conversations_text, ticket_subject, llm_router=None):
+    """Scans Freshdesk conversations for PO corrections, lesson signals, and approval confirmations.
+    Returns JSON with scan results for learning loop."""
+    system = """You are the Reply Scanner Agent for Silverfin's Luxembourg templates support team.
+Your job: scan Freshdesk ticket conversations and identify:
+1. Corrections to AI-generated drafts (things the agent got wrong)
+2. Lesson signals (patterns the PO explicitly stated)
+3. Approval confirmations (PO or BSO confirmed a response was correct)
+4. Client clarifications that change the ticket interpretation
+
+OUTPUT — valid JSON only:
+{
+  "corrections": ["list of things the AI got wrong or that were corrected"],
+  "lesson_signals": ["list of reusable lessons extracted from corrections"],
+  "approval_detected": true/false,
+  "approval_text": "<text confirming approval if detected, else empty>",
+  "action_required": true/false,
+  "action_description": "<what action is required, if any>",
+  "scan_summary": "<one paragraph summary of what was found>"
+}
+
+If no meaningful corrections or lessons exist, return empty arrays."""
+    user_msg = f"""TICKET: {ticket_subject}
+
+FULL CONVERSATION THREAD:
+{conversations_text[:6000]}
+
+Scan for corrections, lessons, approvals, and required actions."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="reply_scanner_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=800,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=800,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("corrections", [])
+        result.setdefault("lesson_signals", [])
+        result.setdefault("approval_detected", False)
+        result.setdefault("approval_text", "")
+        result.setdefault("action_required", False)
+        result.setdefault("action_description", "")
+        result.setdefault("scan_summary", "")
+        logger.info(f"Reply Scanner: {len(result['corrections'])} corrections, approval={result['approval_detected']} for: {ticket_subject[:50]}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Reply Scanner Agent failed: {e}")
+        return {"corrections": [], "lesson_signals": [], "approval_detected": False, "approval_text": "", "action_required": False, "action_description": "", "scan_summary": f"Scan failed: {str(e)[:100]}"}, {}
+
+
+def batch_agent(client, tickets_data, operation="analyze_and_plan", llm_router=None):
+    """Generates a batch processing plan for multiple tickets.
+    tickets_data: JSON string of ticket summaries.
+    Returns JSON: {batch_plan, priority_order, groups, estimated_total_effort, recommended_actions}"""
+    system = """You are the Batch Processing Agent for Silverfin's Luxembourg templates support team.
+Your job: analyse a set of tickets and generate a prioritised batch processing plan.
+
+OUTPUT — valid JSON only:
+{
+  "batch_plan": "<paragraph describing the overall batch plan>",
+  "priority_order": ["ticket_id or description ordered by priority"],
+  "groups": [
+    {"group_name": "<name>", "tickets": ["ids"], "rationale": "<why grouped>", "suggested_action": "<action>"}
+  ],
+  "estimated_total_effort": "<low | medium | high>",
+  "recommended_actions": ["list of concrete recommended next steps"],
+  "patterns_found": ["any recurring patterns across the batch"]
+}"""
+    user_msg = f"""OPERATION: {operation}
+
+TICKETS:
+{tickets_data[:5000]}
+
+Generate a batch processing plan."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="batch_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=1500,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_FAST, max_tokens=1500,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("batch_plan", "")
+        result.setdefault("priority_order", [])
+        result.setdefault("groups", [])
+        result.setdefault("estimated_total_effort", "medium")
+        result.setdefault("recommended_actions", [])
+        result.setdefault("patterns_found", [])
+        logger.info(f"Batch Agent: {len(result['groups'])} groups for {operation}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Batch Agent failed: {e}")
+        return {"batch_plan": f"Failed: {str(e)[:100]}", "priority_order": [], "groups": [], "estimated_total_effort": "unknown", "recommended_actions": [], "patterns_found": []}, {}
+
+
+def reporting_agent(client, metrics_json, period="weekly", llm_router=None):
+    """Generates LLM-powered report insights from ticket metrics.
+    Returns JSON: {executive_summary, key_findings, trends, recommendations, risk_flags}"""
+    system = f"""You are the Reporting Agent for Silverfin's Luxembourg templates support team.
+Your job: analyse ticket support metrics and generate actionable {period} report insights.
+
+OUTPUT — valid JSON only:
+{{
+  "executive_summary": "<2-3 sentence high-level summary for management>",
+  "key_findings": ["list of 3-5 key findings from the data"],
+  "trends": ["list of observed trends — positive or negative"],
+  "recommendations": ["list of 3-5 concrete actionable recommendations"],
+  "risk_flags": ["any patterns that indicate risk or require immediate attention"],
+  "period_summary": "<one-line summary of the {period} period>"
+}}"""
+    user_msg = f"""REPORT PERIOD: {period}
+
+METRICS DATA:
+{metrics_json[:4000]}
+
+Generate {period} report insights."""
+    try:
+        if llm_router is not None:
+            resp = llm_router.complete(
+                agent_name="reporting_agent",
+                system=system,
+                messages=[{"role": "user", "content": user_msg}],
+                max_tokens=1500,
+            )
+            text = resp.text.strip() if resp.text else "{}"
+            usage = _usage_from_llm_response(resp)
+        else:
+            text, usage = _call_with_retry(
+                client, model=AGENT_MODEL_MAIN, max_tokens=1500,
+                system=system, messages=[{"role": "user", "content": user_msg}],
+            )
+        if text.startswith("```"):
+            text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("```").strip()
+        result = json.loads(text)
+        result.setdefault("executive_summary", "")
+        result.setdefault("key_findings", [])
+        result.setdefault("trends", [])
+        result.setdefault("recommendations", [])
+        result.setdefault("risk_flags", [])
+        result.setdefault("period_summary", "")
+        logger.info(f"Reporting Agent: {len(result['key_findings'])} findings for {period}")
+        return result, usage
+    except Exception as e:
+        logger.error(f"Reporting Agent failed: {e}")
+        return {"executive_summary": f"Report generation failed: {str(e)[:100]}", "key_findings": [], "trends": [], "recommendations": [], "risk_flags": [], "period_summary": ""}, {}
+
+
 class AgentOrchestrator:
     """
     Orchestrator that coordinates all agents for ticket processing.
 
     Pipeline for ANALYSIS (initial fetch):
-      1. KB Agent → targeted knowledge brief
-      2. Code Agent → functional code analysis + reference patterns
-      3. Research Agent → similar tickets + lessons
-      4. Main Analysis Agent → classification, RICE, summary, analysis
-      5. QA Agent → validate output
+      1. classification_agent → fast pre-classification
+      2. summary_agent → clean ticket summary
+      3. KB Agent → targeted knowledge brief
+      4. Code Agent → functional code analysis + reference patterns
+      5. Research Agent → similar tickets + lessons
+      6. feasibility_agent → technical feasibility verdict
+      7. jira_agent → Jira context summary (if Jira configured)
+      8. Main Analysis Agent → classification, RICE, summary, analysis
+      9. notification_agent → internal notification preview (if high-risk)
+      10. QA Agent → validate output
 
     Pipeline for DRAFT RESPONSE (after PO approval):
-      1. KB Agent → targeted knowledge brief
-      2. Code Agent → functional code analysis + reference patterns
-      3. Research Agent → how similar tickets were responded to
-      4. Main Draft Agent → generate draft response
-      5. QA Agent → validate draft
+      1. summary_agent → clean ticket summary (if not already stored)
+      2. KB Agent → targeted knowledge brief
+      3. Code Agent → functional code analysis + reference patterns
+      4. Research Agent → how similar tickets were responded to
+      5. feasibility_agent → confirm feasibility before drafting
+      6. jira_agent → Jira context summary (if Jira configured)
+      7. Main Draft Agent → generate draft response
+      8. QA Agent → validate draft
 
     Pipeline for PRD ANALYSIS (deep analysis):
       1. KB Agent → targeted knowledge brief
@@ -1032,6 +1475,11 @@ class AgentOrchestrator:
 
     Post-PO-review (called when PO saves edits):
       Learning Agent → extract lessons from PO's changes
+
+    Manual flows:
+      reply_scanner_agent → scan Freshdesk replies for corrections
+      batch_agent → generate batch processing plan
+      reporting_agent → generate AI report insights
     """
 
     def __init__(self, anthropic_key, db=None):
@@ -1148,6 +1596,343 @@ class AgentOrchestrator:
                 self.db.commit()
         except Exception as e:
             logger.warning(f"Cache cleanup failed: {e}")
+
+    # ── agent_runs storage ────────────────────────────────────────────────────
+
+    def _record_agent_run(self, ticket_id, agent_name, flow, status,
+                          input_summary="", output_summary="", output_json="",
+                          error="", started_at="", finished_at="",
+                          duration_ms=0, provider="", model=""):
+        """Record a workflow-level agent run in the agent_runs table.
+        Never raises — failures are logged and silently ignored."""
+        if not self.db:
+            return
+        try:
+            with self._db_lock:
+                self.db.execute("""
+                    INSERT INTO agent_runs
+                        (ticket_id, agent_name, flow, status,
+                         input_summary, output_summary, output_json,
+                         error, started_at, finished_at, duration_ms, provider, model)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (ticket_id, agent_name, flow, status,
+                      str(input_summary or "")[:500],
+                      str(output_summary or "")[:500],
+                      str(output_json or "")[:8000],
+                      str(error or "")[:500],
+                      started_at or datetime.now(timezone.utc).isoformat(),
+                      finished_at or datetime.now(timezone.utc).isoformat(),
+                      duration_ms, provider or "", model or ""))
+                self.db.commit()
+        except Exception as e:
+            logger.warning(f"_record_agent_run failed for {agent_name}: {e}")
+
+    def get_agent_runs(self, ticket_id=None, agent_name=None, flow=None, limit=50):
+        """Fetch agent_runs records. All filters optional. Returns list of dicts."""
+        if not self.db:
+            return []
+        try:
+            where_parts = []
+            params = []
+            if ticket_id is not None:
+                where_parts.append("ticket_id = ?")
+                params.append(ticket_id)
+            if agent_name:
+                where_parts.append("agent_name = ?")
+                params.append(agent_name)
+            if flow:
+                where_parts.append("flow = ?")
+                params.append(flow)
+            where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
+            rows = self.db.execute(
+                f"SELECT * FROM agent_runs {where} ORDER BY started_at DESC LIMIT ?",
+                params + [limit]
+            ).fetchall()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.warning(f"get_agent_runs failed: {e}")
+            return []
+
+    # ── New agent runner methods ───────────────────────────────────────────────
+
+    def run_classification(self, ticket_id, ticket_subject, ticket_description):
+        """Run classification_agent. Stores result in agent_runs. Returns classification dict."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = classification_agent(
+                self.client, ticket_subject, ticket_description,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("classification_agent", ticket_id, len(ticket_description), len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="classification_agent", flow="analysis",
+                status="completed",
+                input_summary=f"Subject: {ticket_subject[:100]}",
+                output_summary=f"{result.get('classification')} (conf={result.get('confidence', 0):.2f})",
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="classification_agent", flow="analysis",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_classification failed for ticket {ticket_id}: {e}")
+            return {"classification": "needs_analysis", "confidence": 0.0, "reason": str(e)[:100], "ticket_type": "needs_investigation"}
+
+    def run_summary(self, ticket_id, ticket_subject, compiled_thread):
+        """Run summary_agent. Stores result in agent_runs. Returns summary text."""
+        if not compiled_thread:
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="summary_agent", flow="analysis",
+                status="skipped", input_summary="No compiled thread available",
+                output_summary="skipped — no thread",
+            )
+            return ""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            text, usage = summary_agent(
+                self.client, compiled_thread, ticket_subject,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("summary_agent", ticket_id, len(compiled_thread), len(text), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="summary_agent", flow="analysis",
+                status="completed",
+                input_summary=f"Thread: {len(compiled_thread)} chars",
+                output_summary=text[:300],
+                output_json=json.dumps({"summary": text}),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return text
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="summary_agent", flow="analysis",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_summary failed for ticket {ticket_id}: {e}")
+            return ""
+
+    def run_feasibility(self, ticket_id, ticket_subject, summary_brief, code_brief, kb_brief):
+        """Run feasibility_agent. Stores result in agent_runs. Returns feasibility dict."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = feasibility_agent(
+                self.client, ticket_subject, summary_brief, code_brief, kb_brief,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("feasibility_agent", ticket_id,
+                            len(summary_brief) + len(code_brief) + len(kb_brief),
+                            len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="feasibility_agent", flow="analysis",
+                status="completed",
+                input_summary=f"summary={len(summary_brief)}c code={len(code_brief)}c kb={len(kb_brief)}c",
+                output_summary=f"verdict={result.get('verdict')} effort={result.get('dev_effort_estimate')}",
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="feasibility_agent", flow="analysis",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_feasibility failed for ticket {ticket_id}: {e}")
+            return {"verdict": "unclear", "reason": str(e)[:100], "conditions": "", "existing_solution": "", "dev_effort_estimate": "unknown"}
+
+    def run_jira_summary(self, ticket_id, ticket_subject, jira_raw_text, pm_context=""):
+        """Run jira_agent to summarise raw Jira results. Returns summarised text.
+        Falls back to raw text if agent fails."""
+        if not jira_raw_text or not jira_raw_text.strip():
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="jira_agent", flow="analysis",
+                status="skipped", input_summary="No Jira results",
+                output_summary="skipped — Jira not configured or no results",
+            )
+            return ""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            text, usage = jira_agent(
+                self.client, ticket_subject, jira_raw_text, pm_context,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("jira_agent", ticket_id, len(jira_raw_text), len(text), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="jira_agent", flow="analysis",
+                status="completed",
+                input_summary=f"Jira raw: {len(jira_raw_text)} chars",
+                output_summary=text[:300],
+                output_json=json.dumps({"jira_brief": text}),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return text
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="jira_agent", flow="analysis",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.warning(f"run_jira_summary failed for ticket {ticket_id}: {e} — using raw Jira text")
+            return jira_raw_text  # Fallback to raw
+
+    def run_notification_preview(self, ticket_id, ticket_subject, classification,
+                                 risk_level, pm_decision_summary):
+        """Run notification_agent. Stores preview in agent_runs. Returns notification dict.
+        This is preview-only — nothing is sent automatically."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = notification_agent(
+                self.client, ticket_subject, classification, risk_level, pm_decision_summary,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("notification_agent", ticket_id, 0, len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="notification_agent", flow="notification",
+                status="completed",
+                input_summary=f"risk={risk_level} classification={classification}",
+                output_summary=f"[{result.get('severity')}] {result.get('headline', '')[:80]}",
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="notification_agent", flow="notification",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_notification_preview failed for ticket {ticket_id}: {e}")
+            return {}
+
+    def run_reply_scanner(self, ticket_id, ticket_subject, conversations_text):
+        """Run reply_scanner_agent. Stores result in agent_runs.
+        If corrections found, triggers learning_agent.
+        Returns scan result dict."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = reply_scanner_agent(
+                self.client, conversations_text, ticket_subject,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("reply_scanner_agent", ticket_id, len(conversations_text), len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="reply_scanner_agent", flow="reply_scan",
+                status="completed",
+                input_summary=f"Conversations: {len(conversations_text)} chars",
+                output_summary=result.get("scan_summary", "")[:300],
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=ticket_id, agent_name="reply_scanner_agent", flow="reply_scan",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_reply_scanner failed for ticket {ticket_id}: {e}")
+            return {"corrections": [], "lesson_signals": [], "approval_detected": False, "scan_summary": f"Scan failed: {str(e)[:100]}"}
+
+    def run_batch_plan(self, tickets_summary_json, operation="analyze_and_plan"):
+        """Run batch_agent to generate a batch processing plan.
+        Stores result in agent_runs (ticket_id=None). Returns plan dict."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = batch_agent(
+                self.client, tickets_summary_json, operation,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("batch_agent", None, len(tickets_summary_json), len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=None, agent_name="batch_agent", flow="batch",
+                status="completed",
+                input_summary=f"Operation: {operation}, data: {len(tickets_summary_json)} chars",
+                output_summary=result.get("batch_plan", "")[:300],
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=None, agent_name="batch_agent", flow="batch",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_batch_plan failed: {e}")
+            return {"batch_plan": f"Failed: {str(e)[:100]}", "priority_order": [], "groups": [], "estimated_total_effort": "unknown", "recommended_actions": [], "patterns_found": []}
+
+    def run_report(self, period, metrics_json):
+        """Run reporting_agent to generate AI insights from metrics.
+        Stores result in agent_runs (ticket_id=None). Returns report insights dict."""
+        started = datetime.now(timezone.utc).isoformat()
+        start = time.time()
+        try:
+            result, usage = reporting_agent(
+                self.client, metrics_json, period,
+                llm_router=self.llm_router,
+            )
+            duration = int((time.time() - start) * 1000)
+            self._log_agent("reporting_agent", None, len(metrics_json), len(json.dumps(result)), duration, usage=usage)
+            self._record_agent_run(
+                ticket_id=None, agent_name="reporting_agent", flow="reporting",
+                status="completed",
+                input_summary=f"Period: {period}, metrics: {len(metrics_json)} chars",
+                output_summary=result.get("period_summary", "")[:300],
+                output_json=json.dumps(result),
+                started_at=started, finished_at=datetime.now(timezone.utc).isoformat(),
+                duration_ms=duration,
+                provider=usage.get("provider", ""), model=usage.get("model", ""),
+            )
+            return result
+        except Exception as e:
+            duration = int((time.time() - start) * 1000)
+            self._record_agent_run(
+                ticket_id=None, agent_name="reporting_agent", flow="reporting",
+                status="failed", error=str(e)[:300], started_at=started,
+                finished_at=datetime.now(timezone.utc).isoformat(), duration_ms=duration,
+            )
+            logger.error(f"run_report failed for {period}: {e}")
+            return {"executive_summary": f"Report failed: {str(e)[:100]}", "key_findings": [], "trends": [], "recommendations": [], "risk_flags": [], "period_summary": ""}
 
     # ── Individual agent runners ──────────────────────────────────────────────
 
@@ -1595,6 +2380,28 @@ CREATE TABLE IF NOT EXISTS pm_structured_lessons (
 CREATE INDEX IF NOT EXISTS idx_pm_struct_lesson_type ON pm_structured_lessons(lesson_type);
 CREATE INDEX IF NOT EXISTS idx_pm_struct_template ON pm_structured_lessons(template_name);
 CREATE INDEX IF NOT EXISTS idx_pm_struct_active ON pm_structured_lessons(active);
+
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER,
+    agent_name TEXT NOT NULL,
+    flow TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending',
+    input_summary TEXT DEFAULT '',
+    output_summary TEXT DEFAULT '',
+    output_json TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    started_at TEXT DEFAULT '',
+    finished_at TEXT DEFAULT '',
+    duration_ms INTEGER DEFAULT 0,
+    provider TEXT DEFAULT '',
+    model TEXT DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_ticket ON agent_runs(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent ON agent_runs(agent_name);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_flow ON agent_runs(flow);
+CREATE INDEX IF NOT EXISTS idx_agent_runs_started ON agent_runs(started_at);
 """
 
 

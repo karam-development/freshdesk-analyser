@@ -3588,17 +3588,25 @@ def run_analysis_job():
                         if i == 0 and kb_context:
                             orchestrator.preload_kb_index(kb_context, term_context)
 
+                        # ── Pre-analysis agents (fast, run before prep agents) ──────────
+                        _subject = ticket_data.get("subject", "")
+                        _cls_brief = orchestrator.run_classification(tid, _subject, compiled[:2000])
+                        _sum_brief = orchestrator.run_summary(tid, _subject, compiled)
+
                         # Search Jira for related issues (if Jira is configured)
-                        jira_ctx = search_jira_for_ticket(
-                            ticket_data.get("subject", ""),
+                        _jira_raw = search_jira_for_ticket(
+                            _subject,
                             template_name=ticket_data.get("template_name", ""),
                             db=db
                         )
+                        jira_ctx = orchestrator.run_jira_summary(tid, _subject, _jira_raw) if _jira_raw else ""
 
                         # 2a. Run KB + Code + Research agents in PARALLEL
                         _update_job(progress=f"Agents analyzing ticket {tid} ({i+1}/{len(ticket_list)})...")
+                        # Use summary_agent output as the ticket summary if available
+                        _analysis_summary = _sum_brief[:800] if _sum_brief else compiled[:1000]
                         kb_brief, code_brief, research_brief = orchestrator.run_preparation_agents_parallel(
-                            tid, ticket_data.get("subject", ""), compiled[:1000],
+                            tid, _subject, _analysis_summary,
                             kb_context, code_ctx,
                             terminology_context=term_context,
                             template_name=ticket_data.get("template_name", ""),
@@ -3606,12 +3614,25 @@ def run_analysis_job():
                             jira_context=jira_ctx,
                         )
 
+                        # 2a-ii. Run feasibility_agent after prep agents
+                        _feasibility = orchestrator.run_feasibility(tid, _subject, _sum_brief, code_brief, kb_brief)
+
                         # 2b. Build enhanced context from all agent briefs
                         enhanced_kb = ""
+                        if _cls_brief and _cls_brief.get("classification") not in ("needs_analysis", ""):
+                            enhanced_kb += f"\n\nCLASSIFICATION AGENT PRE-SCREEN:\nClassification: {_cls_brief.get('classification')} (confidence: {_cls_brief.get('confidence', 0):.0%})\nReason: {_cls_brief.get('reason', '')}\n"
+                        if _sum_brief:
+                            enhanced_kb += f"\n\nSUMMARY AGENT BRIEF:\n{_sum_brief}\n"
+                        if _feasibility and _feasibility.get("verdict") not in ("unclear", ""):
+                            enhanced_kb += f"\n\nFEASIBILITY AGENT VERDICT:\nVerdict: {_feasibility.get('verdict')}\nReason: {_feasibility.get('reason', '')}\n"
+                            if _feasibility.get("existing_solution"):
+                                enhanced_kb += f"Existing solution: {_feasibility.get('existing_solution')}\n"
                         if kb_brief:
                             enhanced_kb += f"\n\nKB AGENT BRIEF (pre-validated, targeted knowledge for this ticket):\n{kb_brief}\n"
                         if research_brief:
                             enhanced_kb += f"\n\nRESEARCH AGENT BRIEF (similar past tickets and lessons learned):\n{research_brief}\n"
+                        if jira_ctx:
+                            enhanced_kb += f"\n\nJIRA AGENT BRIEF:\n{jira_ctx}\n"
                         enhanced_kb += f"\n\nRAW KNOWLEDGE BASE (backup reference):\n{truncate_text(kb_context, 2000)}" if kb_context else ""
 
                         # 2b-ii. LEARNING LOOP: Inject direct lessons from past PO corrections
@@ -4685,6 +4706,28 @@ def ticket_detail(ticket_id):
         logger.warning(f"PM/PO summary build failed: {_summary_err}")
         ticket_dict["pm_po_summary"] = None
 
+    # ── Agent Runs (for Agent Run Status + Agent Briefs sections) ──────────────
+    try:
+        _ar_rows = db.execute(
+            "SELECT * FROM agent_runs WHERE ticket_id = ? ORDER BY started_at DESC LIMIT 50",
+            (ticket_id,)
+        ).fetchall()
+        ticket_dict["agent_runs"] = [dict(r) for r in _ar_rows]
+        # Build agent briefs index: latest completed run per agent
+        _briefs = {}
+        for _ar in reversed(ticket_dict["agent_runs"]):
+            _aname = _ar.get("agent_name", "")
+            if _ar.get("status") == "completed" and _ar.get("output_json") and _aname not in _briefs:
+                try:
+                    _briefs[_aname] = json.loads(_ar["output_json"])
+                except Exception:
+                    _briefs[_aname] = {"_raw": _ar.get("output_summary", "")}
+        ticket_dict["agent_briefs"] = _briefs
+    except Exception as _ar_err:
+        logger.warning(f"Agent runs fetch failed for ticket {ticket_id}: {_ar_err}")
+        ticket_dict["agent_runs"] = []
+        ticket_dict["agent_briefs"] = {}
+
     return render_template("ticket.html", ticket=ticket_dict)
 
 
@@ -4870,15 +4913,23 @@ def generate_drafts(ticket_id):
     code_ctx = find_template_code(ticket["subject"], ticket["analysis"], db=db)
 
     try:
-        # ── Agent Pipeline: Parallel Prep → Main Draft → QA with Retry ──
+        # ── Agent Pipeline: Pre-analysis → Parallel Prep → Feasibility → Main Draft → QA ──
         orchestrator = AgentOrchestrator(anthropic_key, db=db)
 
-        # Search Jira for related issues
-        jira_ctx = search_jira_for_ticket(ticket["subject"], _row_get(ticket, "template_name", ""), db=db)
+        # 0. Pre-analysis agents (fast, non-blocking — run before heavy prep agents)
+        _sum_brief_gd = orchestrator.run_summary(ticket_id, ticket["subject"], compiled)
+        _cls_brief_gd = orchestrator.run_classification(
+            ticket_id, ticket["subject"], compiled[:2000])
+
+        # Search Jira for related issues — pipe through jira_agent
+        _jira_raw_gd = search_jira_for_ticket(ticket["subject"], _row_get(ticket, "template_name", ""), db=db)
+        jira_ctx = orchestrator.run_jira_summary(ticket_id, ticket["subject"], _jira_raw_gd) if _jira_raw_gd else ""
 
         # 1. Run KB + Code + Research agents in PARALLEL
+        # Use summary_agent output as better context if available
+        _gd_summary = _sum_brief_gd[:800] if _sum_brief_gd else (ticket["analysis"] or "")[:1000]
         kb_brief, code_brief, research_brief = orchestrator.run_preparation_agents_parallel(
-            ticket_id, ticket["subject"], (ticket["analysis"] or "")[:1000],
+            ticket_id, ticket["subject"], _gd_summary,
             kb_context, code_ctx,
             terminology_context=term_context,
             template_name=_row_get(ticket, "template_name", ""),
@@ -4886,14 +4937,28 @@ def generate_drafts(ticket_id):
             jira_context=jira_ctx,
         )
 
+        # 1b. Run feasibility_agent after prep agents have code+kb briefs
+        _feasibility_gd = orchestrator.run_feasibility(
+            ticket_id, ticket["subject"], _sum_brief_gd, code_brief, kb_brief)
+
         # 2. Build enhanced context from all agent briefs
         # NOTE: Agent briefs are in English. The language enforcement in the prompt
         # instructs the model to translate — never copy English verbatim into French output.
         enhanced_kb = "\n[CONTEXT DATA BELOW IS FOR REFERENCE ONLY — DO NOT COPY TEXT FROM IT. TRANSLATE TO THE DRAFT LANGUAGE.]\n"
+        if _cls_brief_gd and _cls_brief_gd.get("classification") not in ("needs_analysis", ""):
+            enhanced_kb += f"\nCLASSIFICATION AGENT PRE-SCREEN: {_cls_brief_gd.get('classification')} ({_cls_brief_gd.get('confidence', 0):.0%} confidence)\n"
+        if _sum_brief_gd:
+            enhanced_kb += f"\nSUMMARY AGENT BRIEF:\n{_sum_brief_gd}\n"
+        if _feasibility_gd and _feasibility_gd.get("verdict") not in ("unclear", ""):
+            enhanced_kb += f"\nFEASIBILITY AGENT VERDICT: {_feasibility_gd.get('verdict')}\n{_feasibility_gd.get('reason', '')}\n"
+            if _feasibility_gd.get("existing_solution"):
+                enhanced_kb += f"Existing solution: {_feasibility_gd.get('existing_solution')}\n"
         if kb_brief:
             enhanced_kb += f"\nKB AGENT BRIEF (pre-validated knowledge for this ticket):\n{kb_brief}\n"
         if research_brief:
             enhanced_kb += f"\nRESEARCH AGENT BRIEF (similar past tickets and lessons):\n{research_brief}\n"
+        if jira_ctx:
+            enhanced_kb += f"\nJIRA AGENT BRIEF:\n{jira_ctx}\n"
         enhanced_kb += f"\nRAW KNOWLEDGE BASE (backup):\n{truncate_text(kb_context, 2000)}" if kb_context else ""
 
         # 2b. LEARNING LOOP: Inject top lessons directly from past PO corrections.
@@ -6404,15 +6469,24 @@ def prepare_analysis(ticket_id):
         draft_en = ticket["draft_response_en"] if "draft_response_en" in ticket.keys() else ""
         current_draft = draft_fr if lang == "fr" else (draft_en or draft_fr)
 
-        # ── Agent Pipeline: Parallel Prep → Main PRD → QA with Retry ──
+        # ── Agent Pipeline: Pre-analysis → Parallel Prep → Feasibility → Main PRD → QA ──
         orchestrator = AgentOrchestrator(anthropic_key, db=db)
 
-        # Search Jira for related issues
-        jira_ctx = search_jira_for_ticket(ticket["subject"], _row_get(ticket, "template_name", ""), db=db)
+        # 0. Pre-analysis agents (fast, run before heavy prep agents)
+        _cls_brief_pa = orchestrator.run_classification(
+            ticket_id, ticket["subject"], (ticket["compiled_thread"] or "")[:2000])
+        _sum_brief_pa = orchestrator.run_summary(
+            ticket_id, ticket["subject"], ticket["compiled_thread"] or "")
+
+        # Search Jira for related issues — pipe through jira_agent for LLM summarization
+        _jira_raw_pa = search_jira_for_ticket(ticket["subject"], _row_get(ticket, "template_name", ""), db=db)
+        jira_ctx = orchestrator.run_jira_summary(ticket_id, ticket["subject"], _jira_raw_pa) if _jira_raw_pa else ""
 
         # 1. Run KB + Code + Research agents in PARALLEL
+        # Use summary_agent output as the ticket summary if available
+        _pa_summary = _sum_brief_pa[:800] if _sum_brief_pa else (ticket["analysis"] or "")[:1000]
         kb_brief, code_brief, research_brief = orchestrator.run_preparation_agents_parallel(
-            ticket_id, ticket["subject"], (ticket["analysis"] or "")[:1000],
+            ticket_id, ticket["subject"], _pa_summary,
             kb_context, code_ctx,
             terminology_context=term_context,
             template_name=_row_get(ticket, "template_name", ""),
@@ -6420,12 +6494,26 @@ def prepare_analysis(ticket_id):
             jira_context=jira_ctx,
         )
 
+        # 1b. Run feasibility_agent after prep agents have code+kb briefs
+        _feasibility_pa = orchestrator.run_feasibility(
+            ticket_id, ticket["subject"], _sum_brief_pa, code_brief, kb_brief)
+
         # 2. Build enhanced context from all agent briefs
         enhanced_kb = "\n[CONTEXT DATA BELOW IS FOR REFERENCE ONLY — DO NOT COPY TEXT FROM IT. TRANSLATE TO THE OUTPUT LANGUAGE.]\n"
+        if _cls_brief_pa and _cls_brief_pa.get("classification") not in ("needs_analysis", ""):
+            enhanced_kb += f"\nCLASSIFICATION AGENT PRE-SCREEN:\nClassification: {_cls_brief_pa.get('classification')} (confidence: {_cls_brief_pa.get('confidence', 0):.0%})\nReason: {_cls_brief_pa.get('reason', '')}\n"
+        if _sum_brief_pa:
+            enhanced_kb += f"\nSUMMARY AGENT BRIEF:\n{_sum_brief_pa}\n"
+        if _feasibility_pa and _feasibility_pa.get("verdict") not in ("unclear", ""):
+            enhanced_kb += f"\nFEASIBILITY AGENT VERDICT: {_feasibility_pa.get('verdict')}\n{_feasibility_pa.get('reason', '')}\n"
+            if _feasibility_pa.get("existing_solution"):
+                enhanced_kb += f"Existing solution: {_feasibility_pa.get('existing_solution')}\n"
         if kb_brief:
             enhanced_kb += f"\nKB AGENT BRIEF (pre-validated knowledge for this ticket):\n{kb_brief}\n"
         if research_brief:
             enhanced_kb += f"\nRESEARCH AGENT BRIEF (similar past tickets and lessons):\n{research_brief}\n"
+        if jira_ctx:
+            enhanced_kb += f"\nJIRA AGENT BRIEF:\n{jira_ctx}\n"
         enhanced_kb += f"\nRAW KNOWLEDGE BASE (backup):\n{truncate_text(kb_context, 2000)}" if kb_context else ""
 
         # Use Code Agent brief instead of raw code
@@ -6597,6 +6685,27 @@ def prepare_analysis(ticket_id):
                        (prd_result.get("template_name", ""), prd_result.get("workflow_name", ""), ticket_id))
             db.commit()
         flash("Deep analysis prepared successfully (agent pipeline) — you can now download the document.", "success")
+
+        # 5. notification_agent: run preview if ticket is high-risk (non-blocking)
+        try:
+            _risk = prd_result.get("risk_level") or _row_get(ticket, "risk_level", "") or ""
+            if str(_risk).lower() in ("high", "critical"):
+                _pm_dec_sum = ""
+                try:
+                    _pmd = load_pm_decision_from_ticket(ticket)
+                    _pm_dec_sum = f"{_pmd.get('decision', '')} — {_pmd.get('reason', '')}"[:200]
+                except Exception:
+                    pass
+                orchestrator.run_notification_preview(
+                    ticket_id,
+                    ticket["subject"],
+                    prd_result.get("classification") or _row_get(ticket, "classification", "") or "",
+                    _risk,
+                    _pm_dec_sum,
+                )
+        except Exception as _notif_err:
+            logger.debug(f"Notification preview skipped for ticket {ticket_id}: {_notif_err}")
+
     except Exception as e:
         logger.error(f"PRD analysis generation failed for ticket {ticket_id}: {e}")
         flash(f"Analysis generation failed: {str(e)[:200]}", "error")
@@ -8421,6 +8530,53 @@ def agent_dashboard():
     except Exception as _catalog_err:
         logger.warning(f"Agent catalog build failed: {_catalog_err}")
 
+    # ── Runtime Agent Map — live stats from agent_runs ────────────────────────
+    _AGENT_REGISTRY = [
+        {"agent_name": "main_analysis_agent",   "flow": "analysis",     "trigger": "auto · analysis job",         "runtime_status": "wired_active"},
+        {"agent_name": "kb_agent",               "flow": "analysis",     "trigger": "auto · parallel prep",        "runtime_status": "wired_active"},
+        {"agent_name": "code_agent",             "flow": "analysis",     "trigger": "auto · parallel prep",        "runtime_status": "wired_active"},
+        {"agent_name": "research_agent",         "flow": "analysis",     "trigger": "auto · parallel prep",        "runtime_status": "wired_active"},
+        {"agent_name": "classification_agent",   "flow": "analysis",     "trigger": "auto · pre-analysis step",    "runtime_status": "wired_now"},
+        {"agent_name": "summary_agent",          "flow": "analysis",     "trigger": "auto · pre-analysis step",    "runtime_status": "wired_now"},
+        {"agent_name": "feasibility_agent",      "flow": "analysis",     "trigger": "auto · pre-analysis step",    "runtime_status": "wired_now"},
+        {"agent_name": "jira_agent",             "flow": "analysis",     "trigger": "auto · jira enrichment",      "runtime_status": "wired_now"},
+        {"agent_name": "draft_response_agent",   "flow": "draft",        "trigger": "auto · draft generation",     "runtime_status": "wired_active"},
+        {"agent_name": "qa_agent",               "flow": "draft",        "trigger": "auto · post-draft QA",        "runtime_status": "wired_active"},
+        {"agent_name": "learning_agent",         "flow": "learning",     "trigger": "auto · post-edit / feedback", "runtime_status": "wired_active"},
+        {"agent_name": "prd_agent",              "flow": "prd",          "trigger": "manual · PRD generation",     "runtime_status": "wired_active"},
+        {"agent_name": "notification_agent",     "flow": "notification", "trigger": "auto · high-risk detection",  "runtime_status": "wired_now"},
+        {"agent_name": "reply_scanner_agent",    "flow": "reply_scan",   "trigger": "manual · POST /scan-replies", "runtime_status": "wired_now"},
+        {"agent_name": "batch_agent",            "flow": "batch",        "trigger": "manual · POST /api/batch/plan","runtime_status": "wired_now"},
+        {"agent_name": "reporting_agent",        "flow": "reporting",    "trigger": "manual · POST /api/reports/generate-ai","runtime_status": "wired_now"},
+    ]
+    agent_runtime_map = []
+    try:
+        _run_stats = {}
+        _rows = db.execute(
+            "SELECT agent_name, status, COUNT(*) as cnt, MAX(started_at) as last_run"
+            " FROM agent_runs GROUP BY agent_name, status"
+        ).fetchall()
+        for _r in _rows:
+            _name = _r["agent_name"]
+            if _name not in _run_stats:
+                _run_stats[_name] = {"completed_runs": 0, "failed_runs": 0, "last_run": ""}
+            if _r["status"] == "completed":
+                _run_stats[_name]["completed_runs"] += _r["cnt"]
+            elif _r["status"] == "failed":
+                _run_stats[_name]["failed_runs"] += _r["cnt"]
+            if _r["last_run"] and _r["last_run"] > _run_stats[_name]["last_run"]:
+                _run_stats[_name]["last_run"] = _r["last_run"]
+        for _entry in _AGENT_REGISTRY:
+            _stats = _run_stats.get(_entry["agent_name"], {})
+            agent_runtime_map.append({**_entry, **_stats,
+                "completed_runs": _stats.get("completed_runs", 0),
+                "failed_runs": _stats.get("failed_runs", 0),
+                "last_run": _stats.get("last_run", ""),
+            })
+    except Exception as _arm_err:
+        logger.warning(f"agent_runtime_map build failed: {_arm_err}")
+        agent_runtime_map = []
+
     return render_template("agents.html",
         cost_summary=cost_summary,
         lessons=lessons,
@@ -8433,6 +8589,7 @@ def agent_dashboard():
         model_configs=model_configs,
         agent_catalog_rows=agent_catalog_rows,
         structured_pm_lessons=structured_pm_lessons,
+        agent_runtime_map=agent_runtime_map,
     )
 
 
@@ -8471,6 +8628,161 @@ def toggle_lesson(lesson_id):
         return jsonify({"ok": True, "active": new_active})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)[:200]}), 500
+
+
+# ── Agent-Level API Routes ────────────────────────────────────────────────────
+
+@app.route("/ticket/<int:ticket_id>/scan-replies", methods=["POST"])
+def scan_replies(ticket_id):
+    """Run reply_scanner_agent on a ticket's conversations; trigger learning if corrections found."""
+    db = get_db()
+    ticket = db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+    if not ticket:
+        return jsonify({"ok": False, "error": "Ticket not found"}), 404
+    try:
+        conversations = db.execute(
+            "SELECT * FROM conversations WHERE ticket_id = ? ORDER BY created_at",
+            (ticket_id,),
+        ).fetchall()
+        conversations_text = "\n\n".join(
+            f"[{row['created_at']}] {row.get('body_text', row.get('body', ''))[:500]}"
+            for row in conversations
+        ) if conversations else ""
+        client = Anthropic()
+        orchestrator = AgentOrchestrator(db=db, client=client)
+        result = orchestrator.run_reply_scanner(ticket_id, ticket["subject"], conversations_text)
+        # Trigger learning if corrections or lesson signals found
+        lesson_count = 0
+        if result.get("corrections") or result.get("lesson_signals"):
+            signals = result.get("corrections", []) + result.get("lesson_signals", [])
+            for sig in signals[:5]:  # cap at 5 lessons per scan
+                text = sig if isinstance(sig, str) else sig.get("text", str(sig))
+                if text:
+                    try:
+                        db.execute(
+                            "INSERT INTO agent_lessons (ticket_id, lesson_text, source, active)"
+                            " VALUES (?, ?, ?, 1)",
+                            (ticket_id, text[:500], "reply_scanner"),
+                        )
+                        lesson_count += 1
+                    except Exception:
+                        pass
+            if lesson_count:
+                db.commit()
+        return jsonify({"ok": True, "result": result, "lessons_stored": lesson_count})
+    except Exception as e:
+        logger.exception("scan-replies error ticket %s: %s", ticket_id, e)
+        return jsonify({"ok": False, "error": str(e)[:300]}), 500
+
+
+@app.route("/ticket/<int:ticket_id>/notification-preview")
+def notification_preview(ticket_id):
+    """Return a JSON preview of the notification_agent output for a ticket (no external send)."""
+    db = get_db()
+    ticket = db.execute("SELECT * FROM tickets WHERE id = ?", (ticket_id,)).fetchone()
+    if not ticket:
+        return jsonify({"ok": False, "error": "Ticket not found"}), 404
+    try:
+        # Pull latest completed notification_agent run from agent_runs
+        row = db.execute(
+            "SELECT output_json FROM agent_runs"
+            " WHERE ticket_id = ? AND agent_name = 'notification_agent' AND status = 'completed'"
+            " ORDER BY started_at DESC LIMIT 1",
+            (ticket_id,),
+        ).fetchone()
+        if row and row["output_json"]:
+            try:
+                return jsonify({"ok": True, "preview": json.loads(row["output_json"]), "cached": True})
+            except Exception:
+                pass
+        # Generate fresh preview
+        analysis = db.execute("SELECT * FROM analyses WHERE ticket_id = ? ORDER BY id DESC LIMIT 1",
+                               (ticket_id,)).fetchone()
+        classification = ""
+        risk_level = "unknown"
+        pm_decision_summary = ""
+        if analysis:
+            classification = analysis.get("ticket_type") or analysis.get("classification") or ""
+            risk_level = analysis.get("risk_level") or "unknown"
+            pm_decision_summary = analysis.get("pm_decision_summary") or analysis.get("decision_reason") or ""
+        client = Anthropic()
+        orchestrator = AgentOrchestrator(db=db, client=client)
+        preview = orchestrator.run_notification_preview(
+            ticket_id, ticket["subject"], classification, risk_level, pm_decision_summary
+        )
+        return jsonify({"ok": True, "preview": preview, "cached": False})
+    except Exception as e:
+        logger.exception("notification-preview error ticket %s: %s", ticket_id, e)
+        return jsonify({"ok": False, "error": str(e)[:300]}), 500
+
+
+@app.route("/api/batch/plan", methods=["POST"])
+def batch_plan():
+    """Run batch_agent to produce a plan over a set of tickets (returns JSON; no auto-actions)."""
+    body = request.get_json(silent=True) or {}
+    operation = body.get("operation", "analyze_and_plan")
+    ticket_ids = body.get("ticket_ids") or []
+    if not ticket_ids:
+        return jsonify({"ok": False, "error": "ticket_ids required"}), 400
+    db = get_db()
+    rows = db.execute(
+        "SELECT id, subject, status, priority, created_at FROM tickets WHERE id IN ({})".format(
+            ",".join("?" * len(ticket_ids))
+        ),
+        ticket_ids,
+    ).fetchall()
+    if not rows:
+        return jsonify({"ok": False, "error": "No tickets found for given ids"}), 404
+    tickets_summary = [
+        {"id": r["id"], "subject": r["subject"], "status": r["status"],
+         "priority": r["priority"], "created_at": r["created_at"]}
+        for r in rows
+    ]
+    try:
+        client = Anthropic()
+        orchestrator = AgentOrchestrator(db=db, client=client)
+        result = orchestrator.run_batch_plan(json.dumps(tickets_summary), operation=operation)
+        return jsonify({"ok": True, "plan": result, "ticket_count": len(rows)})
+    except Exception as e:
+        logger.exception("batch-plan error: %s", e)
+        return jsonify({"ok": False, "error": str(e)[:300]}), 500
+
+
+@app.route("/api/reports/generate-ai", methods=["POST"])
+def generate_ai_report():
+    """Run reporting_agent over current DB metrics and return AI-generated insights (JSON)."""
+    body = request.get_json(silent=True) or {}
+    period = body.get("period", "weekly")
+    db = get_db()
+    try:
+        # Collect metrics from DB
+        total = db.execute("SELECT COUNT(*) FROM tickets").fetchone()[0]
+        analyzed = db.execute("SELECT COUNT(*) FROM analyses").fetchone()[0]
+        by_status = {r["status"]: r["cnt"] for r in db.execute(
+            "SELECT status, COUNT(*) AS cnt FROM tickets GROUP BY status"
+        ).fetchall()}
+        by_priority = {str(r["priority"]): r["cnt"] for r in db.execute(
+            "SELECT priority, COUNT(*) AS cnt FROM tickets GROUP BY priority"
+        ).fetchall()}
+        recent_runs = db.execute(
+            "SELECT agent_name, status, COUNT(*) AS cnt FROM agent_runs"
+            " WHERE started_at >= date('now', '-7 days') GROUP BY agent_name, status"
+        ).fetchall() if period == "weekly" else []
+        metrics = {
+            "period": period,
+            "total_tickets": total,
+            "analyzed_tickets": analyzed,
+            "by_status": by_status,
+            "by_priority": by_priority,
+            "agent_run_summary": [dict(r) for r in recent_runs],
+        }
+        client = Anthropic()
+        orchestrator = AgentOrchestrator(db=db, client=client)
+        insights = orchestrator.run_report(period, json.dumps(metrics))
+        return jsonify({"ok": True, "insights": insights, "metrics": metrics})
+    except Exception as e:
+        logger.exception("generate-ai-report error: %s", e)
+        return jsonify({"ok": False, "error": str(e)[:300]}), 500
 
 
 # ── Init & Run ───────────────────────────────────────────────────────────────
