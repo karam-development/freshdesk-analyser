@@ -106,8 +106,9 @@ def test_settings_route_builds_security_readiness():
     idx = APP_SRC.find("def settings()")
     if idx == -1:
         idx = APP_SRC.find("def settings(")
-    # The settings function is long; search a generous window
-    func_body = APP_SRC[idx:idx + 10000]
+    # The next route def marks the end of settings(); search up to next @app.route
+    next_route = APP_SRC.find("@app.route", idx + 1)
+    func_body = APP_SRC[idx:next_route] if next_route != -1 else APP_SRC[idx:]
     assert "build_security_readiness_report" in func_body
 
 
@@ -115,7 +116,8 @@ def test_settings_route_passes_security_readiness_to_template():
     idx = APP_SRC.find("def settings()")
     if idx == -1:
         idx = APP_SRC.find("def settings(")
-    func_body = APP_SRC[idx:idx + 10000]
+    next_route = APP_SRC.find("@app.route", idx + 1)
+    func_body = APP_SRC[idx:next_route] if next_route != -1 else APP_SRC[idx:]
     assert "security_readiness=security_readiness" in func_body
 
 

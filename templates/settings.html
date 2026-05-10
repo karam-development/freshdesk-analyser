@@ -933,6 +933,83 @@
             </div>
         </div>
 
+        <!-- SEMANTIC RAG CONFIGURATION -->
+        <div class="settings-section" style="grid-column: 1 / -1;">
+            <h3>Semantic RAG Configuration</h3>
+            <div style="margin: -12px 0 14px 0; padding: 10px 14px; background: #fefce8; border: 1px solid #fde68a; border-radius: 8px; font-size: 0.85em; color: #78350f; line-height: 1.5;">
+                <strong>Experimental feature.</strong>
+                Semantic RAG is <strong>off by default</strong>. Enable only after normal keyword KB retrieval works.
+                May increase embedding provider cost (per-token billing on each KB entry, cached after first run).
+                If semantic retrieval fails for any reason, the app falls back to keyword retrieval automatically.
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div class="form-group">
+                    <label>Semantic RAG Enabled</label>
+                    <select name="semantic_rag_enabled">
+                        <option value="false" {% if settings.semantic_rag_enabled != 'true' %}selected{% endif %}>Off (default)</option>
+                        <option value="true" {% if settings.semantic_rag_enabled == 'true' %}selected{% endif %}>On</option>
+                    </select>
+                    <div class="hint">When off, keyword retrieval is used exclusively. No embedding API calls are made.</div>
+                </div>
+                <div class="form-group">
+                    <label>Embedding Provider</label>
+                    <select name="semantic_rag_provider">
+                        <option value="openai" {% if settings.semantic_rag_provider != 'anthropic' %}selected{% endif %}>OpenAI (default)</option>
+                        <option value="anthropic" {% if settings.semantic_rag_provider == 'anthropic' %}selected{% endif %}>Anthropic</option>
+                    </select>
+                    <div class="hint">Provider used for embedding API calls. OpenAI is currently supported. Requires LLM API Key set above.</div>
+                </div>
+                <div class="form-group">
+                    <label>Embedding Model</label>
+                    <input type="text" name="semantic_embedding_model" value="{{ settings.semantic_embedding_model or 'text-embedding-3-small' }}" placeholder="text-embedding-3-small">
+                    <div class="hint">OpenAI embedding model to use. Default: <code>text-embedding-3-small</code>.</div>
+                </div>
+                <div class="form-group">
+                    <label>Top K Results</label>
+                    <input type="number" name="semantic_rag_top_k" value="{{ settings.semantic_rag_top_k or '5' }}" min="1" max="20" step="1" placeholder="5">
+                    <div class="hint">Maximum number of semantic matches to retrieve. Default: 5. Must be a positive integer.</div>
+                </div>
+                <div class="form-group">
+                    <label>Min Similarity Score</label>
+                    <input type="number" name="semantic_rag_min_score" value="{{ settings.semantic_rag_min_score or '0.65' }}" min="0" max="1" step="0.01" placeholder="0.65">
+                    <div class="hint">Minimum cosine similarity (0–1) for a KB record to be included. Default: 0.65. Must be between 0 and 1.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- SEMANTIC RAG CACHE STATUS (read-only) -->
+        <div class="settings-section" style="grid-column: 1 / -1;">
+            <h3>Semantic RAG Cache <small style="font-weight: 400; font-size: 0.75em; color: var(--text-muted);">read-only</small></h3>
+            <p style="color: var(--text-muted); font-size: 0.85em; margin: -12px 0 14px 0; line-height: 1.5;">
+                Embeddings are cached in <code>kb_embedding_cache</code> after the first run.
+                Subsequent calls reuse cached vectors; the API is only called when new or changed KB entries are detected.
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start;">
+                <div style="font-size: 0.85em; padding: 10px 14px; background: var(--bg-secondary, #f6f8fa); border: 1px solid var(--border-color, #e1e4e8); border-radius: 8px; min-width: 200px;">
+                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Status</div>
+                    <strong>{% if settings.semantic_rag_enabled == 'true' %}Enabled{% else %}Disabled (default){% endif %}</strong>
+                </div>
+                <div style="font-size: 0.85em; padding: 10px 14px; background: var(--bg-secondary, #f6f8fa); border: 1px solid var(--border-color, #e1e4e8); border-radius: 8px; min-width: 200px;">
+                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Embedding Provider</div>
+                    <strong>{{ settings.semantic_rag_provider or 'openai' }}</strong>
+                </div>
+                <div style="font-size: 0.85em; padding: 10px 14px; background: var(--bg-secondary, #f6f8fa); border: 1px solid var(--border-color, #e1e4e8); border-radius: 8px; min-width: 200px;">
+                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Embedding Model</div>
+                    <strong>{{ settings.semantic_embedding_model or 'text-embedding-3-small' }}</strong>
+                </div>
+                <div style="font-size: 0.85em; padding: 10px 14px; background: var(--bg-secondary, #f6f8fa); border: 1px solid var(--border-color, #e1e4e8); border-radius: 8px; min-width: 200px;">
+                    <div style="color: var(--text-muted); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;">Cached Records</div>
+                    <strong>
+                        {% if kb_cache_status.available %}
+                        {{ kb_cache_status.count }} record{{ 's' if kb_cache_status.count != 1 else '' }}
+                        {% else %}
+                        Unavailable
+                        {% endif %}
+                    </strong>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- JIRA SETTINGS -->
