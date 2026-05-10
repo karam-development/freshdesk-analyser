@@ -6610,13 +6610,13 @@ def generate_doc(ticket_id):
         with open(input_path, "w") as f:
             json.dump(payload, f, default=str)
 
-        script_path = os.path.join(app_dir, "generate_analysis.js")
-        node_modules_path = os.path.join(app_dir, "node_modules")
+        script_path = os.path.join(_APP_DIR, "generate_analysis.js")
+        node_modules_path = os.path.join(_APP_DIR, "node_modules")
         env = os.environ.copy()
         env["NODE_PATH"] = node_modules_path
         result = subprocess.run(
             ["node", script_path, input_path, output_path],
-            capture_output=True, text=True, timeout=30, cwd=app_dir, env=env
+            capture_output=True, text=True, timeout=30, cwd=_APP_DIR, env=env
         )
 
         if result.returncode != 0:
