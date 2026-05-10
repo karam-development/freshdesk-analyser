@@ -4996,6 +4996,24 @@ def generate_drafts(ticket_id):
                     f"(decision={_pm_dec_draft.get('decision')}, "
                     f"depth={_pm_dec_draft.get('answer_depth')})"
                 )
+            # ── Support explanation context ───────────────────────────────────
+            try:
+                from ai.support_explanation import build_support_explanation_context
+                _support_ctx = build_support_explanation_context(
+                    pm_decision=_pm_dec_draft,
+                )
+                if _support_ctx:
+                    enhanced_kb = _support_ctx + "\n\n" + enhanced_kb
+                    logger.info(
+                        f"Ticket {ticket_id}: support explanation context injected "
+                        f"(decision={_pm_dec_draft.get('decision')}, "
+                        f"classification={_pm_dec_draft.get('classification')})"
+                    )
+            except Exception as _sup_exp_err:
+                logger.warning(
+                    f"Support explanation context injection failed for ticket "
+                    f"{ticket_id}: {_sup_exp_err}"
+                )
         except Exception as _pm_inject_err:
             logger.warning(
                 f"PM decision context injection failed for ticket {ticket_id}: {_pm_inject_err}"
@@ -5284,6 +5302,25 @@ def regenerate_draft_pm(ticket_id):
         _pm_block = build_pm_prompt_block(_pm_dec, regeneration_instruction=_regen_instr)
         if _pm_block:
             enhanced_kb = _pm_block + "\n\n" + enhanced_kb
+
+        # ── Support explanation context (regeneration) ────────────────────────
+        try:
+            from ai.support_explanation import build_support_explanation_context
+            _support_ctx_regen = build_support_explanation_context(
+                pm_decision=_pm_dec,
+            )
+            if _support_ctx_regen:
+                enhanced_kb = _support_ctx_regen + "\n\n" + enhanced_kb
+                logger.info(
+                    f"Ticket {ticket_id}: support explanation context injected (regen) "
+                    f"(decision={_pm_dec.get('decision')}, "
+                    f"classification={_pm_dec.get('classification')})"
+                )
+        except Exception as _sup_exp_regen_err:
+            logger.warning(
+                f"Support explanation context injection (regen) failed for ticket "
+                f"{ticket_id}: {_sup_exp_regen_err}"
+            )
 
         # ── Inject structured PM lessons into regeneration context ────────────
         try:
@@ -8363,6 +8400,14 @@ def agent_dashboard():
 
     model_configs = list_agent_model_configs(db)
 
+    # Build agent catalog rows (purpose + used_in merged with config)
+    agent_catalog_rows = []
+    try:
+        from ai.agent_catalog import build_agent_catalog_rows
+        agent_catalog_rows = build_agent_catalog_rows(model_configs)
+    except Exception as _catalog_err:
+        logger.warning(f"Agent catalog build failed: {_catalog_err}")
+
     return render_template("agents.html",
         cost_summary=cost_summary,
         lessons=lessons,
@@ -8373,6 +8418,7 @@ def agent_dashboard():
         total_tokens=total_tokens,
         success_rate=success_rate,
         model_configs=model_configs,
+        agent_catalog_rows=agent_catalog_rows,
         structured_pm_lessons=structured_pm_lessons,
     )
 
