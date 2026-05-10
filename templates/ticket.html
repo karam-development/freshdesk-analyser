@@ -2,6 +2,175 @@
 {% block title %}Ticket #{{ ticket.ticket_id }} - Freshdesk AI Analyzer{% endblock %}
 
 {% block content %}
+
+<!-- WORKSPACE CSS -->
+<style>
+/* ── Sticky Decision Bar ── */
+.ws-bar {
+    position: sticky;
+    top: 0;
+    z-index: 500;
+    background: #fff;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 8px 24px;
+}
+.ws-bar-inner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+.ws-bar-ticket {
+    font-weight: 700;
+    font-size: 0.95em;
+    color: #1e293b;
+}
+
+/* ── Workspace Grid ── */
+.ws-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.25fr;
+    gap: 24px;
+}
+.ws-col {}
+@media (max-width: 960px) {
+    .ws-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Workflow Stepper ── */
+.ws-stepper {
+    display: flex;
+    gap: 0;
+    align-items: stretch;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+.ws-step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px 8px;
+    border-right: 1px solid #e2e8f0;
+    gap: 4px;
+    position: relative;
+}
+.ws-step:last-child { border-right: none; }
+.ws-step-circle {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.85em;
+    background: #f1f5f9;
+    color: #94a3b8;
+}
+.ws-step-label {
+    font-size: 0.82em;
+    font-weight: 600;
+    color: #64748b;
+}
+.ws-step-sub {
+    font-size: 0.68em;
+    color: #94a3b8;
+    text-align: center;
+}
+.ws-step--done .ws-step-circle { background: #dcfce7; color: #16a34a; }
+.ws-step--done .ws-step-label { color: #16a34a; }
+.ws-step--done { background: #f0fdf4; }
+.ws-step--current .ws-step-circle { background: #5046e5; color: #fff; }
+.ws-step--current .ws-step-label { color: #5046e5; font-weight: 700; }
+.ws-step--current { background: #eef2ff; }
+.ws-step--pending .ws-step-circle { background: #f1f5f9; color: #94a3b8; }
+.ws-step--blocked .ws-step-circle { background: #fee2e2; color: #dc2626; }
+.ws-step--blocked .ws-step-label { color: #dc2626; }
+
+/* ── Action Groups ── */
+.action-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.action-group-label {
+    font-size: 0.68em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #94a3b8;
+    margin-bottom: 2px;
+}
+.action-group-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+/* ── What Support Should Send Panel ── */
+.what-to-send {
+    border-left: 4px solid #10b981;
+    background: linear-gradient(135deg, #f0fdf4 0%, #fff 100%);
+}
+.what-to-send-notice {
+    background: #fefce8;
+    border: 1px solid #fde047;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 0.82em;
+    color: #713f12;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+.what-to-send-preview {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 12px;
+}
+.what-to-send-empty {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-muted);
+}
+
+/* ── Diagnostics wrapper ── */
+.ws-diag {}
+</style>
+
+<!-- WORKSPACE STICKY BAR -->
+<div class="ws-bar" id="workspace-bar">
+    <div class="ws-bar-inner">
+        <span class="ws-bar-ticket">#{{ ticket.ticket_id }}</span>
+        {% if ticket.classification %}
+        <span class="badge" style="font-size:0.75em;">{{ ticket.classification }}</span>
+        {% endif %}
+        {% if ticket.pm_decision and ticket.pm_decision.decision %}
+        <span class="badge" style="font-size:0.75em;background:#ede9fe;color:#5b21b6;">{{ ticket.pm_decision.decision }}</span>
+        {% endif %}
+        {% if ticket.safe_to_send_display %}
+        <span class="badge badge--{% if ticket.safe_to_send_display.severity == 'success' %}success{% elif ticket.safe_to_send_display.severity == 'danger' %}danger{% else %}warning{% endif %}" style="font-size:0.75em;">
+            STS: {{ ticket.safe_to_send_display.badge_label }}
+        </span>
+        {% endif %}
+        {% if ticket.pm_po_summary and ticket.pm_po_summary.next_action %}
+        <span style="font-size:0.78em;color:#475569;">→ {{ ticket.pm_po_summary.next_action }}</span>
+        {% endif %}
+        <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary" style="padding:3px 10px;font-size:0.78em;margin-left:auto;">
+            Open in Freshdesk ↗
+        </a>
+    </div>
+</div>
+
 <div class="ticket-container">
     <!-- ═══════════════════════════════════════════════════════════════════
          HEADER: Ticket Title + Action Buttons
@@ -447,10 +616,44 @@
     </script>
 </div>
 
+<!-- WORKSPACE STEPPER -->
+{% set _step1_done = ticket.analysis %}
+{% set _step2_done = ticket.pm_decision %}
+{% set _step2_current = ticket.analysis and not ticket.pm_decision %}
+{% set _step3_done = ticket.po_decision and ticket.po_decision|lower in ('approved', 'declined') %}
+{% set _step3_current = ticket.pm_decision and not (ticket.po_decision and ticket.po_decision|lower in ('approved', 'declined')) %}
+{% set _step4_current = ticket.draft_response or ticket.draft_response_en %}
+<div class="ws-stepper" id="workspace-stepper">
+    <div class="ws-step {% if _step1_done %}ws-step--done{% else %}ws-step--current{% endif %}">
+        <div class="ws-step-circle">{% if _step1_done %}✓{% else %}1{% endif %}</div>
+        <div class="ws-step-label">Understand</div>
+        <div class="ws-step-sub">Summary · Classification · Template</div>
+    </div>
+    <div class="ws-step {% if _step2_done %}ws-step--done{% elif _step2_current %}ws-step--current{% else %}ws-step--pending{% endif %}">
+        <div class="ws-step-circle">{% if _step2_done %}✓{% else %}2{% endif %}</div>
+        <div class="ws-step-label">Decide</div>
+        <div class="ws-step-sub">PM Decision · Feasibility · RICE</div>
+    </div>
+    <div class="ws-step {% if _step3_done %}ws-step--done{% elif _step3_current %}ws-step--current{% else %}ws-step--pending{% endif %}">
+        <div class="ws-step-circle">{% if _step3_done %}✓{% else %}3{% endif %}</div>
+        <div class="ws-step-label">Review</div>
+        <div class="ws-step-sub">PO Decision · QA · Safe to Send</div>
+    </div>
+    <div class="ws-step {% if _step4_current %}ws-step--current{% else %}ws-step--pending{% endif %}">
+        <div class="ws-step-circle">4</div>
+        <div class="ws-step-label">Act</div>
+        <div class="ws-step-sub">Draft · Send · Learn</div>
+    </div>
+</div>
+<!-- END WORKSPACE STEPPER -->
+
 <!-- ═══════════════════════════════════════════════════════════════════
      MAIN CONTENT GRID
      ═══════════════════════════════════════════════════════════════════ -->
-<div class="detail-grid">
+<!-- WORKSPACE GRID -->
+<div class="ws-grid" id="workspace-grid">
+<!-- LEFT COLUMN: Ticket Context -->
+<div class="ws-col ws-col--left">
 
     <!-- PM/PO REVIEW SUMMARY CARD ════════════════════════════════════════ -->
     {% set s = ticket.pm_po_summary %}
@@ -844,6 +1047,101 @@
         <p style="color:var(--text-muted);font-size:0.875em;">No safe-to-send review available. Generate a draft and fetch ticket data to compute the review.</p>
         {% endif %}
     </div>
+
+    <!-- AGENT RUN STATUS CARD -->
+    <div class="card">
+        <h3 class="card-heading">Agent Run Status <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only · auto-refreshed on next analysis</small></h3>
+        {% if ticket.agent_runs %}
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8em;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--border);color:var(--text-muted);text-align:left;">
+                    <th style="padding:4px 8px;">Agent</th>
+                    <th style="padding:4px 8px;">Flow</th>
+                    <th style="padding:4px 8px;">Status</th>
+                    <th style="padding:4px 8px;">Duration</th>
+                    <th style="padding:4px 8px;">Summary</th>
+                    <th style="padding:4px 8px;">Started</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for run in ticket.agent_runs %}
+            <tr style="border-bottom:1px solid var(--border-light,#f1f5f9);">
+                <td style="padding:4px 8px;font-weight:500;">{{ run.agent_name | replace('_agent','') | replace('_',' ') | title }}</td>
+                <td style="padding:4px 8px;color:var(--text-muted);">{{ run.flow or '–' }}</td>
+                <td style="padding:4px 8px;">
+                    {% if run.status == 'completed' %}
+                    <span class="badge badge--success" style="font-size:0.7em;">✓ completed</span>
+                    {% elif run.status == 'failed' %}
+                    <span class="badge badge--danger" style="font-size:0.7em;">✗ failed</span>
+                    {% elif run.status == 'running' %}
+                    <span class="badge badge--warning" style="font-size:0.7em;">⟳ running</span>
+                    {% elif run.status == 'skipped' %}
+                    <span style="color:var(--text-muted);font-size:0.75em;">– skipped</span>
+                    {% else %}
+                    <span style="color:var(--text-muted);font-size:0.75em;">{{ run.status }}</span>
+                    {% endif %}
+                </td>
+                <td style="padding:4px 8px;color:var(--text-muted);">
+                    {% if run.duration_ms %}{{ run.duration_ms }}ms{% else %}–{% endif %}
+                </td>
+                <td style="padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text-muted);"
+                    title="{{ run.output_summary or run.error or '' }}">
+                    {% if run.status == 'failed' and run.error %}
+                    <span style="color:var(--danger,#e53e3e);">{{ run.error[:80] }}</span>
+                    {% else %}
+                    {{ (run.output_summary or '–')[:80] }}
+                    {% endif %}
+                </td>
+                <td style="padding:4px 8px;color:var(--text-muted);font-size:0.75em;">{{ run.started_at[:16] if run.started_at else '–' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:4px 0;">No agent runs recorded yet for this ticket. Trigger an analysis to populate this table.</p>
+        {% endif %}
+    </div>
+    <!-- END AGENT RUN STATUS CARD -->
+
+    <!-- AGENT BRIEFS CARD -->
+    <div class="card">
+        <details>
+        <summary style="cursor:pointer;font-weight:600;font-size:0.9em;color:var(--text-muted);padding:2px 0;user-select:none;">
+            Agent Briefs <small style="font-weight:400;font-size:0.8em;">({{ ticket.agent_briefs.keys()|list|length if ticket.agent_briefs else 0 }} agent{{ 's' if (ticket.agent_briefs and ticket.agent_briefs.keys()|list|length != 1) else '' }})</small>
+        </summary>
+        {% if ticket.agent_briefs %}
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px;">
+            {% for agent_name, brief in ticket.agent_briefs.items() %}
+            <div style="border-left:3px solid var(--border);padding:8px 12px;border-radius:0 4px 4px 0;background:var(--bg-subtle,#f8fafc);">
+                <div style="font-weight:600;font-size:0.8em;margin-bottom:4px;text-transform:uppercase;color:var(--text-muted);">
+                    {{ agent_name | replace('_agent','') | replace('_',' ') | title }}
+                </div>
+                {% if brief is mapping %}
+                    {% for k, v in brief.items() %}
+                    {% if k != '_raw' and v %}
+                    <div style="font-size:0.8em;margin-bottom:2px;">
+                        <span style="color:var(--text-muted);font-weight:500;">{{ k | replace('_',' ') | title }}:</span>
+                        <span>{{ v if v is string else v|tojson }}</span>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                    {% if brief.get('_raw') %}
+                    <div style="font-size:0.8em;color:var(--text-muted);">{{ brief._raw[:300] }}</div>
+                    {% endif %}
+                {% else %}
+                <div style="font-size:0.8em;color:var(--text-muted);">{{ brief|string|truncate(300) }}</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:8px 0;">No agent briefs available yet. Run an analysis to populate agent outputs.</p>
+        {% endif %}
+        </details>
+    </div>
+    <!-- END AGENT BRIEFS CARD -->
 
     <!-- PM GUARD REVIEW CARD -->
     <div class="card">
@@ -1397,6 +1695,54 @@
 
         </div><!-- /diagnostics inner div -->
     </details><!-- /Evidence & Diagnostics -->
+
+</div><!-- /ws-col--left -->
+
+<!-- RIGHT COLUMN: Decision & Response -->
+<div class="ws-col ws-col--right">
+
+    <!-- WHAT SUPPORT SHOULD SEND -->
+    <div class="card what-to-send" id="what-to-send-panel">
+        <h3 class="card-heading" style="display:flex;align-items:center;gap:8px;">
+            <span>📤</span> What Support Should Send
+        </h3>
+        <div class="what-to-send-notice">
+            <span style="flex-shrink:0;">ℹ️</span>
+            <span><strong>No reply is sent automatically.</strong> You must review and send manually in Freshdesk. Copying only puts text on your clipboard.</span>
+        </div>
+        {% if ticket.draft_response or ticket.draft_response_en %}
+        <div class="what-to-send-preview">
+            {% if ticket.safe_to_send_display and ticket.safe_to_send_display.has_data %}
+            {% set std = ticket.safe_to_send_display %}
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                <span class="badge badge--{% if std.severity == 'success' %}success{% elif std.severity == 'danger' %}danger{% else %}warning{% endif %}" style="font-size:0.82em;">
+                    {{ std.badge_label }}
+                </span>
+                {% if std.copy_warning %}
+                <span style="font-size:0.78em;color:#b45309;">⚠ {{ std.copy_warning }}</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            <div style="margin-bottom:8px;">
+                <span style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Draft preview (FR)</span>
+                <p style="font-size:0.85em;color:#374151;margin:4px 0 0 0;white-space:pre-line;">{{ (ticket.draft_response or '')|striptags|truncate(350) }}</p>
+            </div>
+            {% if ticket.draft_response_en %}
+            <div style="margin-top:8px;padding-top:8px;border-top:1px solid #e2e8f0;">
+                <span style="font-size:0.7em;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);">Draft preview (EN)</span>
+                <p style="font-size:0.85em;color:#374151;margin:4px 0 0 0;white-space:pre-line;">{{ (ticket.draft_response_en or '')|striptags|truncate(300) }}</p>
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="what-to-send-empty">
+            <p style="font-size:1.5em;margin:0 0 8px 0;">📝</p>
+            <p style="font-weight:600;color:#374151;margin:0 0 4px 0;">No draft generated yet.</p>
+            <p style="font-size:0.85em;color:var(--text-muted);margin:0;">Review the PM decision below, then generate a draft.</p>
+        </div>
+        {% endif %}
+    </div>
+    <!-- END WHAT SUPPORT SHOULD SEND -->
 
     <!-- PO DECISION PANEL -->
     <div class="card full" id="po-decision-panel">
@@ -2357,19 +2703,17 @@
             </div>
         </div>
 
+        <p style="font-size:0.75em;color:var(--text-muted);margin:0 0 6px 0;">Answers are based on this ticket, PM decision, KB evidence, and agent briefs.</p>
+
         <!-- Quick prompt chips -->
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 10px 0;">
+            <button type="button" onclick="setAIChatPrompt('What should Support tell the client?')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                What should Support tell the client?
+            </button>
             <button type="button" onclick="setAIChatPrompt('Explain why this is expected behaviour')"
                 style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
                 Explain why this is expected behaviour
-            </button>
-            <button type="button" onclick="setAIChatPrompt('Write a shorter client-ready response')"
-                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
-                Write a shorter client-ready response
-            </button>
-            <button type="button" onclick="setAIChatPrompt('What should Support do next?')"
-                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
-                What should Support do next?
             </button>
             <button type="button" onclick="setAIChatPrompt('What evidence supports this decision?')"
                 style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
@@ -2378,6 +2722,14 @@
             <button type="button" onclick="setAIChatPrompt('Is this a bug or client preference?')"
                 style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
                 Is this a bug or client preference?
+            </button>
+            <button type="button" onclick="setAIChatPrompt('Write a shorter client-ready response')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                Write a shorter client-ready response
+            </button>
+            <button type="button" onclick="setAIChatPrompt('What should Support do next?')"
+                style="padding:4px 10px;font-size:0.78em;border:1px solid #c7d2fe;background:#eef2ff;color:#4338ca;border-radius:12px;cursor:pointer;white-space:nowrap;">
+                What should Support do next?
             </button>
         </div>
 
@@ -2697,7 +3049,9 @@
         <h3 class="card-heading">Full Ticket Thread</h3>
         <div class="thread-box">{{ ticket.compiled_thread or 'Run analysis to see full ticket thread.' }}</div>
     </div>
-</div>
+
+</div><!-- /ws-col--right -->
+</div><!-- /ws-grid -->
 
 <style>
 /* ═══════════════════════════════════════════════════════════════════
