@@ -143,6 +143,32 @@ LLMRouter is the provider-agnostic routing layer:
 
 ---
 
+## Optional: Playwright Browser Smoke Tests
+
+Before a demo, you can run optional browser-level smoke tests that open a real browser and verify the UI renders correctly:
+
+```bash
+# Install once (not required for normal usage)
+pip install playwright pytest-playwright
+playwright install chromium
+
+# Run while the app is running
+APP_BASE_URL=http://localhost:5000 python3 -m pytest tests/browser -q
+
+# Or use the helper script
+bash scripts/run_browser_smoke.sh
+```
+
+These tests are **optional** and **safe**:
+- Never call Freshdesk or LLM APIs
+- Never trigger draft generation
+- Never post replies or notes (no auto-send)
+- Skip cleanly if Playwright is not installed
+
+See [`docs/PLAYWRIGHT_SMOKE_TESTS.md`](PLAYWRIGHT_SMOKE_TESTS.md) for full details.
+
+---
+
 ## Troubleshooting
 
 ### Missing `llm_api_key`

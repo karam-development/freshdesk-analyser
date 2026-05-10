@@ -15,6 +15,7 @@ analyses them with an LLM, generates draft replies, and tracks BSO metrics.
 | [Team Demo Guide](docs/TEAM_DEMO_GUIDE.md) | How to run and demo the app for the team |
 | [Production Checklist](docs/PRODUCTION_CHECKLIST.md) | Pre-deployment and operational requirements |
 | [Live Demo Smoke Test](docs/LIVE_DEMO_SMOKE_TEST.md) | Manual and automated pre-demo checks |
+| [Playwright Smoke Tests](docs/PLAYWRIGHT_SMOKE_TESTS.md) | Optional browser-level UI smoke tests |
 
 > **Safety rule:** AI drafts are suggestions only — no auto-send behaviour exists. Human review is required before any reply is sent.
 
