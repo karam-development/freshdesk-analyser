@@ -25,6 +25,14 @@ try:
 except ImportError:
     LLMGateway = None
     MODEL_REGISTRY = {}
+
+try:
+    from ai.system_readiness import build_system_readiness_report
+except ImportError:
+    def build_system_readiness_report(settings=None, db=None):  # type: ignore[misc]
+        return {"status": "unknown", "score": 0, "checks": [], "summary": {
+            "pass_count": 0, "warning_count": 0, "fail_count": 0, "unknown_count": 0,
+        }}
 import subprocess
 import tempfile
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, g, send_file
@@ -6574,6 +6582,18 @@ def settings():
     notion_token = get_setting("notion_token", db=db) or ""
     notion_page_id = get_setting("notion_page_id", db=db) or ""
 
+    # System readiness report (never exposes key values)
+    _readiness_settings = {
+        "llm_provider": current.get("llm_provider") or "",
+        "llm_api_key": current.get("llm_api_key") or "",
+        "freshdesk_domain": current.get("freshdesk_domain") or "",
+        "freshdesk_api_key": current.get("freshdesk_api_key") or "",
+        "freshdesk_group_id": current.get("freshdesk_group_id") or "",
+    }
+    system_readiness = build_system_readiness_report(
+        settings=_readiness_settings, db=db
+    )
+
     return render_template("settings.html", settings=current,
                            writing_styles=WRITING_STYLES,
                            knowledge_categories=KNOWLEDGE_CATEGORIES,
@@ -6587,7 +6607,8 @@ def settings():
                            google_export_folder=google_export_folder,
                            google_kb_folder=google_kb_folder,
                            notion_token=notion_token,
-                           notion_page_id=notion_page_id)
+                           notion_page_id=notion_page_id,
+                           system_readiness=system_readiness)
 
 
 @app.route("/knowledge-base/add", methods=["POST"])
@@ -6732,6 +6753,25 @@ def run_analysis():
 def api_status():
     """Get current job status (for auto-refresh)."""
     return jsonify(_get_job_status())
+
+
+@app.route("/api/system-readiness")
+def api_system_readiness():
+    """Return a system readiness report. Never exposes API key values."""
+    try:
+        db = get_db()
+        _settings = {
+            "llm_provider": get_setting("llm_provider", db=db) or "",
+            "llm_api_key": get_setting("llm_api_key", db=db) or "",
+            "freshdesk_domain": get_setting("freshdesk_domain", db=db) or "",
+            "freshdesk_api_key": get_setting("freshdesk_api_key", db=db) or "",
+            "freshdesk_group_id": get_setting("freshdesk_group_id", db=db) or "",
+        }
+        report = build_system_readiness_report(settings=_settings, db=db)
+        return jsonify({"ok": True, "report": report})
+    except Exception as exc:
+        logger.warning(f"api_system_readiness: error: {exc}")
+        return jsonify({"ok": False, "error": "System readiness check failed.", "report": None})
 
 
 @app.route("/api/test-freshdesk", methods=["POST"])
