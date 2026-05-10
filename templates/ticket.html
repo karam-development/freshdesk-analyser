@@ -625,6 +625,44 @@
     </div>
     {% endif %}
 
+    <!-- SUPPORT EXPLANATION GUIDANCE CARD -->
+    <div class="card">
+        <h3 class="card-heading">Support Explanation Guidance <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
+        {% if ticket.pm_decision and ticket.pm_decision.decision in ['explain_workaround', 'support_guidance', 'make_editable', 'reuse_existing_pattern'] or
+              ticket.pm_decision and ticket.pm_decision.classification in ['how_to', 'client_preference', 'expected_behaviour'] %}
+        <div style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span class="badge" style="background:#e0f2fe;color:#0369a1;border:none;">
+                    {{ ticket.pm_decision.decision }}
+                </span>
+                {% if ticket.pm_decision.classification %}
+                <span class="badge" style="background:#f3f4f6;color:#374151;border:none;">
+                    {{ ticket.pm_decision.classification }}
+                </span>
+                {% endif %}
+            </div>
+            <p style="font-size:0.875em;color:var(--text-muted);margin:0;">
+                This ticket is a <strong>support/guidance</strong> case.
+                The draft agent is instructed to explain the current product behaviour, provide
+                step-by-step guidance or a workaround, and include a clear &ldquo;Next step&rdquo; for the client.
+                No development action is expected.
+            </p>
+            {% if ticket.pm_decision.reason %}
+            <div style="background:var(--bg-subtle,#f8fafc);border-left:3px solid #0369a1;padding:8px 12px;border-radius:0 4px 4px 0;">
+                <p style="font-size:0.82em;color:var(--text-muted);margin:0;"><strong>PM reasoning:</strong> {{ ticket.pm_decision.reason }}</p>
+            </div>
+            {% endif %}
+            {% if ticket.pm_decision.recommended_action and ticket.pm_decision.recommended_action != 'needs_analysis' %}
+            <p style="font-size:0.82em;color:var(--text-muted);margin:0;">
+                <strong>Recommended action:</strong> {{ ticket.pm_decision.recommended_action }}
+            </p>
+            {% endif %}
+        </div>
+        {% else %}
+        <p style="color:var(--text-muted);font-size:0.875em;padding:8px 0;">No specific support explanation guidance available for this ticket.</p>
+        {% endif %}
+    </div>
+
     <!-- SAFE TO SEND REVIEW CARD -->
     <div class="card">
         <h3 class="card-heading">Safe to Send Review <small style="font-weight:400;font-size:0.75em;color:var(--text-muted);">read-only</small></h3>
