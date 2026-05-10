@@ -33,6 +33,14 @@ except ImportError:
         return {"status": "unknown", "score": 0, "checks": [], "summary": {
             "pass_count": 0, "warning_count": 0, "fail_count": 0, "unknown_count": 0,
         }}
+
+try:
+    from ai.security_readiness import build_security_readiness_report
+except ImportError:
+    def build_security_readiness_report(settings=None, env=None):  # type: ignore[misc]
+        return {"status": "unknown", "score": 0, "checks": [], "summary": {
+            "pass_count": 0, "warning_count": 0, "fail_count": 0, "unknown_count": 0,
+        }}
 import subprocess
 import tempfile
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, g, send_file
@@ -6638,6 +6646,22 @@ def settings():
         settings=_readiness_settings, db=db
     )
 
+    # Security readiness report (never exposes key values)
+    _security_settings = {
+        "llm_api_key": current.get("llm_api_key") or "",
+        "freshdesk_api_key": current.get("freshdesk_api_key") or "",
+        "freshdesk_domain": current.get("freshdesk_domain") or "",
+    }
+    import os as _os
+    _security_env = {
+        k: _os.environ.get(k, "")
+        for k in ("SECRET_KEY", "FLASK_DEBUG", "APP_DEBUG", "FLASK_ENV",
+                  "APP_ENV", "DATABASE_URL", "DB_PATH")
+    }
+    security_readiness = build_security_readiness_report(
+        settings=_security_settings, env=_security_env
+    )
+
     return render_template("settings.html", settings=current,
                            writing_styles=WRITING_STYLES,
                            knowledge_categories=KNOWLEDGE_CATEGORIES,
@@ -6652,7 +6676,8 @@ def settings():
                            google_kb_folder=google_kb_folder,
                            notion_token=notion_token,
                            notion_page_id=notion_page_id,
-                           system_readiness=system_readiness)
+                           system_readiness=system_readiness,
+                           security_readiness=security_readiness)
 
 
 @app.route("/knowledge-base/add", methods=["POST"])
@@ -6816,6 +6841,29 @@ def api_system_readiness():
     except Exception as exc:
         logger.warning(f"api_system_readiness: error: {exc}")
         return jsonify({"ok": False, "error": "System readiness check failed.", "report": None})
+
+
+@app.route("/api/security-readiness")
+def api_security_readiness():
+    """Return a security readiness report. Never exposes secret values."""
+    import os as _os
+    try:
+        db = get_db()
+        _settings = {
+            "llm_api_key": get_setting("llm_api_key", db=db) or "",
+            "freshdesk_api_key": get_setting("freshdesk_api_key", db=db) or "",
+            "freshdesk_domain": get_setting("freshdesk_domain", db=db) or "",
+        }
+        _env = {
+            k: _os.environ.get(k, "")
+            for k in ("SECRET_KEY", "FLASK_DEBUG", "APP_DEBUG", "FLASK_ENV",
+                      "APP_ENV", "DATABASE_URL", "DB_PATH")
+        }
+        report = build_security_readiness_report(settings=_settings, env=_env)
+        return jsonify({"ok": True, "report": report})
+    except Exception as exc:
+        logger.warning(f"api_security_readiness: error: {exc}")
+        return jsonify({"ok": False, "error": "Security readiness check failed.", "report": None})
 
 
 @app.route("/api/test-freshdesk", methods=["POST"])

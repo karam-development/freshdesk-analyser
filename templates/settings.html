@@ -44,6 +44,10 @@
     .readiness-badge-degraded { background: var(--warning-bg); color: #92400e; }
     .readiness-badge-needs_configuration { background: var(--danger-bg); color: #991b1b; }
     .readiness-badge-unknown  { background: #f3f4f6; color: #4b5563; }
+    /* Security Readiness badge variants */
+    .readiness-badge-secure_enough_for_demo { background: var(--success-bg); color: #065f46; }
+    .readiness-badge-needs_attention        { background: var(--warning-bg); color: #92400e; }
+    .readiness-badge-unsafe_for_production  { background: var(--danger-bg);  color: #991b1b; }
     .readiness-checks {
         display: flex;
         flex-direction: column;
@@ -711,6 +715,56 @@
 </div>
 {% endif %}
 <!-- END SYSTEM READINESS CARD -->
+
+<!-- SECURITY READINESS CARD -->
+{% if security_readiness %}
+{% set sec = security_readiness %}
+<div class="readiness-card">
+    <div class="readiness-header">
+        <span class="readiness-title">Security Readiness</span>
+        <span class="readiness-score">Score: {{ sec.score }}/100</span>
+        <span class="readiness-badge readiness-badge-{{ sec.status }}">
+            {% if sec.status == "secure_enough_for_demo" %}Secure enough for demo
+            {% elif sec.status == "needs_attention" %}Needs attention
+            {% elif sec.status == "unsafe_for_production" %}Unsafe for production
+            {% else %}Unknown{% endif %}
+        </span>
+    </div>
+
+    <div class="readiness-checks">
+        {% for check in sec.checks %}
+        {% if check.status in ("fail", "warning") %}
+        <div class="readiness-check-row">
+            <span class="readiness-check-icon readiness-check-icon-{{ check.status }}">
+                {% if check.status == "fail" %}✗
+                {% elif check.status == "warning" %}!
+                {% else %}?{% endif %}
+            </span>
+            <span>{{ check.title }}</span>
+            <span class="readiness-check-msg">— {{ check.message }}</span>
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% if sec.summary.pass_count > 0 %}
+        <div class="readiness-check-row" style="color: var(--text-muted);">
+            <span class="readiness-check-icon readiness-check-icon-pass">✓</span>
+            <span>{{ sec.summary.pass_count }} security check(s) passing</span>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="readiness-guidance">
+        <strong>Security reminders:</strong>
+        <ul>
+            <li>Set a strong <code>SECRET_KEY</code> environment variable before production or team usage.</li>
+            <li>Disable debug mode (<code>FLASK_DEBUG=0</code>) in any team-accessible deployment.</li>
+            <li>Keep API keys out of screenshots, screen recordings, and logs.</li>
+            <li>Ensure the SQLite DB file is stored in a private, non-public directory and backed up regularly.</li>
+        </ul>
+    </div>
+</div>
+{% endif %}
+<!-- END SECURITY READINESS CARD -->
 
 <!-- SETTINGS FORM -->
 <form method="POST" action="{{ url_for('settings') }}">

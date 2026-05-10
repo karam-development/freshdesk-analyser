@@ -12,7 +12,7 @@ A pre-deployment and operational checklist for running the app in a production-l
 - [ ] `freshdesk_api_key` — Freshdesk API key with read access to the target group
 - [ ] `freshdesk_group_id` — the Freshdesk group to monitor
 - [ ] `writing_style` — set to match your team's tone (`customer_support` or `professional`)
-- [ ] `SECRET_KEY` environment variable — set a strong random value in production (not the default)
+- [ ] `SECRET_KEY` environment variable — **must** be set to a strong random value; never use the default or a placeholder
 
 ### Optional but recommended
 - [ ] `freshdesk_country` — country filter to narrow ticket scope
@@ -25,10 +25,21 @@ A pre-deployment and operational checklist for running the app in a production-l
 ## Secrets Handling
 
 - **Never commit API keys** to the repository. Use environment variables or the app's settings DB.
-- The app stores settings in SQLite. The DB file (`freshdesk.db` or configured path) must not be publicly accessible.
-- The `SECRET_KEY` Flask secret must be set via `SECRET_KEY` environment variable in production — the default includes a random suffix but is not suitable for multi-worker deploys.
-- API keys are never exposed in logs, API responses, or the UI. The system readiness report only shows present/missing.
-- Do not include API keys in screenshots, Notion exports, or Jira descriptions.
+- The app stores settings in SQLite. The DB file (`freshdesk.db` or configured path) **must not be publicly accessible**.
+- The `SECRET_KEY` Flask secret **must** be set via the `SECRET_KEY` environment variable in production. The default value is not suitable for multi-worker deploys or any team-accessible environment.
+- If a `SECRET_KEY` default/placeholder is detected, the Security Readiness card on the Settings page will flag it as a failure.
+- API keys are never exposed in logs, API responses, or the UI. Both the system readiness and security readiness reports only show present/missing.
+- **Do not include API keys in screenshots, screen recordings, Notion exports, or Jira descriptions.**
+- **Rotate any key that has been accidentally exposed** (committed to git, shared in a screenshot, etc.) immediately.
+- Restrict app access to trusted users or a trusted network; the app has no login/authentication in its current scope.
+
+---
+
+## Debug Mode
+
+- **Disable debug mode** (`FLASK_DEBUG=0`, `APP_DEBUG=0`) in any team-accessible or production deployment.
+- Running with debug enabled exposes an interactive debugger and detailed stack traces to anyone who can reach the app.
+- The Security Readiness card flags `FLASK_DEBUG=1` or `APP_DEBUG=1` as a failure in production-like environments.
 
 ---
 
@@ -38,6 +49,7 @@ A pre-deployment and operational checklist for running the app in a production-l
 - [ ] The DB stores tickets, settings, knowledge base, agent configs, and PM decisions
 - [ ] For Render deployments: use a persistent disk or export the DB regularly — ephemeral instances lose the DB on redeploy
 - [ ] Verify backups are restorable before production launch
+- [ ] Keep DB backups access-controlled — they contain API keys and ticket content
 
 ---
 
@@ -82,6 +94,18 @@ A pre-deployment and operational checklist for running the app in a production-l
 
 ---
 
+## Security Readiness Check
+
+Before any demo or team deployment:
+
+- [ ] Open Settings → Security Readiness card shows **Secure enough for demo** or better
+- [ ] `GET /api/security-readiness` returns `{"ok": true, "report": {...}}` with no secret values in output
+- [ ] SECRET_KEY is set and non-default
+- [ ] Debug mode is disabled
+- [ ] DB file is stored in a private directory
+
+---
+
 ## Manual Smoke Tests
 
 After deployment, run these checks manually:
@@ -118,10 +142,11 @@ The following items are intentionally not in scope for this release:
 | Multi-provider fallback | Silent fallback removed; explicit failure on provider error |
 | Real-time Freshdesk webhooks | Polling only; webhooks deferred |
 | Role-based access control | Single-user app in current scope |
-| Encrypted secrets storage | SQLite settings DB; use environment variables for keys |
+| Encrypted secrets storage | SQLite settings DB; use environment variables for keys; encryption deferred |
 | Automated smoke test suite | Manual smoke tests defined above |
+| Secrets rotation tooling | Manual rotation process; tooling deferred |
 
 ---
 
-*Last updated: production-hardening-and-team-demo-polish release.*
-*See also: `docs/TEAM_DEMO_GUIDE.md`*
+*Last updated: security-hardening-secrets-and-access-safety release.*
+*See also: `docs/TEAM_DEMO_GUIDE.md`, `docs/LIVE_DEMO_SMOKE_TEST.md`*
