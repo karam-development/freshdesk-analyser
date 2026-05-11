@@ -165,8 +165,8 @@
         {% if ticket.pm_po_summary and ticket.pm_po_summary.next_action %}
         <span style="font-size:0.78em;color:#475569;">→ {{ ticket.pm_po_summary.next_action }}</span>
         {% endif %}
-        <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary" style="padding:3px 10px;font-size:0.78em;margin-left:auto;">
-            Open in Freshdesk ↗
+        <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary" style="padding:3px 10px;font-size:0.78em;margin-left:auto;" title="Opens Freshdesk ticket — use 'Open in Freshdesk with Note' below to copy the draft first">
+            View in Freshdesk ↗
         </a>
     </div>
 </div>
@@ -181,8 +181,8 @@
             <h1 class="ticket-title">Ticket #{{ ticket.ticket_id }}: {{ ticket.subject }}</h1>
         </div>
         <div class="ticket-header-actions">
-            <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary">
-                <span>Open in Freshdesk</span>
+            <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank" class="btn btn-secondary" title="Opens Freshdesk ticket — use 'Open in Freshdesk with Note' to copy the draft first">
+                <span>View in Freshdesk</span>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             </a>
 
@@ -1852,7 +1852,7 @@
                 <a href="{{ ticket.ticket_url or ('https://silverfin.freshdesk.com/a/tickets/' ~ ticket.ticket_id) }}" target="_blank"
                    style="font-size:0.75em;color:#6366f1;text-decoration:none;display:flex;align-items:center;gap:4px;">
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-                    Open in Freshdesk
+                    View in Freshdesk
                 </a>
             </div>
             <div id="inline-screenshots-row" style="display:flex;gap:8px;overflow-x:auto;padding:4px 0;"></div>
