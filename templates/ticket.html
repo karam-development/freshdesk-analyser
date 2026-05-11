@@ -2978,13 +2978,25 @@
         return parts.join('\n').trim();
     }
 
-    function showPostStatus(msg, isError) {
+    function showPostStatus(msg, isError, isWarning) {
         const el = document.getElementById('post-freshdesk-status');
+        el.style.whiteSpace = 'pre-line';
         el.textContent = msg;
         el.style.display = 'block';
-        el.style.background = isError ? 'var(--danger-bg)' : 'var(--success-bg)';
-        el.style.color = isError ? '#991b1b' : '#065f46';
-        if (!isError) setTimeout(() => { el.style.display = 'none'; }, 4000);
+        if (isError) {
+            el.style.background = 'var(--danger-bg)';
+            el.style.color = '#991b1b';
+        } else if (isWarning) {
+            el.style.background = '#fefce8';
+            el.style.color = '#713f12';
+            el.style.border = '1px solid #fde047';
+            // Keep warning visible until dismissed — user needs to read the paste instruction
+        } else {
+            el.style.background = 'var(--success-bg)';
+            el.style.color = '#065f46';
+            el.style.border = '';
+            setTimeout(() => { el.style.display = 'none'; }, 5000);
+        }
     }
 
     function openInFreshdeskWithNote() {
@@ -3004,7 +3016,9 @@
         .then(r => r.json())
         .then(data => {
             if (data.success) {
-                showPostStatus(data.message, false);
+                // auto_paste=false means AppleScript not permitted — show as warning so user knows to paste manually
+                const isWarning = (data.auto_paste === false && data.clipboard_ok);
+                showPostStatus(data.message, false, isWarning);
             } else {
                 showPostStatus('Error: ' + (data.message || 'Unknown'), true);
             }

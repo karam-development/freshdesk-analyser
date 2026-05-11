@@ -4428,58 +4428,81 @@ def open_freshdesk_note(ticket_id):
 
     system = platform.system()
 
+    # ── Step 1: Copy to clipboard synchronously BEFORE returning the response ──
+    # This guarantees the clipboard is populated even if AppleScript fails.
+    clipboard_ok = False
+    if system == "Darwin":
+        try:
+            proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+            proc.communicate(body_text.encode("utf-8"))
+            clipboard_ok = True
+        except Exception as e:
+            logger.error(f"pbcopy failed: {e}")
+    elif system == "Windows":
+        try:
+            proc = subprocess.Popen(["clip.exe"], stdin=subprocess.PIPE)
+            proc.communicate(body_text.encode("utf-8"))
+            clipboard_ok = True
+        except Exception as e:
+            logger.error(f"clip.exe failed: {e}")
+    else:
+        try:
+            try:
+                proc = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
+            except FileNotFoundError:
+                proc = subprocess.Popen(["xsel", "--clipboard", "--input"], stdin=subprocess.PIPE)
+            proc.communicate(body_text.encode("utf-8"))
+            clipboard_ok = True
+        except Exception as e:
+            logger.error(f"clipboard copy failed: {e}")
+
+    # ── Step 2: Check if AppleScript automation is permitted (macOS only) ──
+    applescript_permitted = False
+    if system == "Darwin":
+        test_result = subprocess.run(
+            ["osascript", "-e", 'tell application "System Events" to return name of first process'],
+            capture_output=True, text=True, timeout=5
+        )
+        applescript_permitted = (test_result.returncode == 0)
+        if not applescript_permitted:
+            logger.warning(f"AppleScript/System Events not permitted: {test_result.stderr.strip()}")
+
+    # ── Step 3: Open ticket URL + auto-paste in background (best-effort) ──
     def run_automation():
         try:
             if system == "Darwin":
-                # ── macOS: Use pbcopy for clipboard + AppleScript for browser control ──
-
-                # 1. Copy content to macOS clipboard via pbcopy
-                proc = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
-                proc.communicate(body_text.encode("utf-8"))
-
-                # 2. Open URL in default browser (Chrome/Safari/etc)
+                # Open URL in default browser (Chrome)
                 subprocess.run(["open", ticket_url])
 
-                # 3. Wait for Freshdesk page to load, then:
-                #    - Press "n" (Freshdesk shortcut to open Note editor)
-                #    - Wait for editor to appear
-                #    - Cmd+V to paste from clipboard
-                time.sleep(3)  # Wait for Freshdesk page to load
-
-                applescript = '''
-                tell application "Google Chrome"
-                    activate
-                    delay 0.5
+                if applescript_permitted:
+                    # Wait for Freshdesk page to load, then:
+                    # - Press Esc to dismiss any open panel
+                    # - Press "n" (Freshdesk shortcut to open Note editor)
+                    # - Wait for editor to appear
+                    # - Cmd+V to paste from clipboard
+                    time.sleep(3)
+                    applescript = '''
+                    tell application "Google Chrome"
+                        activate
+                        delay 0.5
+                    end tell
                     tell application "System Events"
                         tell process "Google Chrome"
                             key code 53
                             delay 0.3
+                            keystroke "n"
+                            delay 1.5
+                            keystroke "v" using command down
                         end tell
-                        keystroke "n"
-                        delay 1.5
-                        keystroke "v" using command down
                     end tell
-                end tell
-                '''
-                subprocess.run(["osascript", "-e", applescript], timeout=20)
-
+                    '''
+                    result = subprocess.run(["osascript", "-e", applescript], capture_output=True, text=True, timeout=20)
+                    if result.returncode != 0:
+                        logger.warning(f"AppleScript paste failed: {result.stderr.strip()}")
             elif system == "Windows":
-                # ── Windows: Use clip.exe + PowerShell for browser control ──
-                proc = subprocess.Popen(["clip.exe"], stdin=subprocess.PIPE)
-                proc.communicate(body_text.encode("utf-8"))
-                # Open URL in default browser
                 subprocess.run(["start", ticket_url], shell=True)
-
             else:
-                # ── Linux: Use xclip + xdg-open ──
-                try:
-                    proc = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE)
-                    proc.communicate(body_text.encode("utf-8"))
-                except FileNotFoundError:
-                    proc = subprocess.Popen(["xsel", "--clipboard", "--input"], stdin=subprocess.PIPE)
-                    proc.communicate(body_text.encode("utf-8"))
                 subprocess.run(["xdg-open", ticket_url])
-
         except Exception as e:
             logger.error(f"Browser automation error: {e}")
 
@@ -4487,11 +4510,21 @@ def open_freshdesk_note(ticket_id):
     thread.start()
 
     if system == "Darwin":
-        msg = "Opening Freshdesk in Chrome — clicking 'Add Note' and pasting your content. Review, tag people, and send when ready."
+        if applescript_permitted:
+            msg = ("Opening Freshdesk — clicking 'Add Note' and pasting your draft automatically. "
+                   "Review and send when ready.")
+        elif clipboard_ok:
+            msg = ("Draft copied to clipboard ✓  Freshdesk is opening — click 'Add Note' and "
+                   "press ⌘V to paste.\n\n"
+                   "To restore auto-paste: System Settings → Privacy & Security → Automation → "
+                   "enable Python / Terminal → System Events.")
+        else:
+            msg = "Could not copy to clipboard. Please copy the draft manually."
     else:
         msg = "Content copied to clipboard and ticket opened. Click 'Add Note' in Freshdesk and paste (Ctrl+V)."
 
-    return jsonify({"success": True, "message": msg})
+    return jsonify({"success": True, "message": msg, "clipboard_ok": clipboard_ok,
+                    "auto_paste": applescript_permitted})
 
 
 @app.route("/ticket/<int:ticket_id>")
